@@ -1,0 +1,12 @@
+[package]
+name = "mpdhaj"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = { version = "4.5.51", features = ["derive"] }
+color-eyre = "0.6.5"
+rodio = { git = "https://www.github.com/RustAudio/rodio" }
+serde = { version = "1.0.228", features = ["derive"] }
+strum = { version = "0.27.2", features = ["derive"] }
+strum_macros = "0.27.2"
