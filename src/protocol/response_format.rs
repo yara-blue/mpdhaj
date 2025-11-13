@@ -7,6 +7,8 @@ use std::time::Duration;
 
 use crate::protocol::AudioParams;
 
+pub use ser::to_string;
+
 #[cfg(test)]
 mod tests;
 

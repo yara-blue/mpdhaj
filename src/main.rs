@@ -82,6 +82,12 @@ fn handle_by_proxying(
                 .next()
                 .ok_or_eyre("server closed the connection")?
                 .wrap_err("Error reading reply from mpd server")?;
+
+            // here to experiment if this is allowed by most clients
+            if response_line.contains("lastloadedplaylist") {
+                eprintln!("skipping: {response_line}");
+                continue;
+            }
             eprintln!("server: {response_line}");
             client_writer
                 .write_fmt(format_args!("{response_line}\n"))

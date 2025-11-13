@@ -6,6 +6,8 @@ edition = "2024"
 [dependencies]
 clap = { version = "4.5.51", features = ["derive"] }
 color-eyre = "0.6.5"
+jiff = { version = "0.2.16", features = ["serde"] }
+pretty_assertions = "1.4.1"
 rodio = { git = "https://www.github.com/RustAudio/rodio" }
 serde = { version = "1.0.228", features = ["derive"] }
 strum = { version = "0.27.2", features = ["derive"] }

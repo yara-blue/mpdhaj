@@ -81,7 +81,20 @@ struct PlayList {
 struct PlaylistId(u32);
 
 #[derive(Debug, Serialize)]
-struct Decibel(f32);
+struct Volume(u8);
+
+impl Volume {
+    pub fn new(val: u8) -> Self {
+        if (0..=100).contains(&val) {
+            Self(val)
+        } else {
+            panic!("Volume value must be between 0 and 101")
+        }
+    }
+    pub fn get(&self) -> u8 {
+        self.0
+    }
+}
 
 #[derive(Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub struct PlaylistName(String);
@@ -91,8 +104,9 @@ struct SongId(u32);
 #[derive(Debug, Serialize)]
 struct SongNumber(u32);
 
-#[derive(Debug, Default, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PosInPlaylist(u32);
+#[derive(Debug, Serialize)]
 struct IdInPlaylist(u32);
 
 #[derive(Debug, Serialize)]
@@ -111,30 +125,36 @@ struct AudioParams {
     channels: ChannelCount,
 }
 
-struct PlayListInfo(Vec<PlaylistEntry>);
+#[derive(Serialize)]
+pub struct PlaylistInfo(Vec<PlaylistEntry>);
 
-struct PlaylistEntry {
+#[derive(Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct PlaylistEntry {
+    #[serde(rename = "file")]
     file: PathBuf,
-    last_modified: SystemTime, // as 2025-06-15T22:06:58Z
-    added: SystemTime,         // as 2025-06-15T22:06:58Z
+    #[serde(rename = "Last-Modified")]
+    last_modified: jiff::Timestamp, // as 2025-06-15T22:06:58Z
+    added: jiff::Timestamp,         // as 2025-06-15T22:06:58Z
+    #[serde(serialize_with = "response_format::audio_params")]
     format: AudioParams,
-    disc: usize,
-    /// Release date usually 4 digit year
-    date: String,
-    /// Location of recording
-    location: String,
+    artist: String,
     album_artist: String,
-    /// the decimal track number within the album.
-    track: usize,
-    /// the name of the label or publisher
-    label: String,
-    /// the music genre
-    genre: String,
-    album: String,
     /// the song title
     title: String,
-    artist: String,
-    duration: Duration, // serialize as millis / 1000
+    album: String,
+    /// the decimal track number within the album.
+    track: usize,
+    /// Release date usually 4 digit year
+    date: String,
+    /// the music genre
+    genre: Option<String>,
+    /// the name of the label or publisher
+    label: String,
+    disc: Option<usize>,
+    #[serde(serialize_with = "response_format::duration_millis_precise")]
+    #[serde(rename = "duration")]
+    duration: Duration,
     pos: PosInPlaylist,
     id: IdInPlaylist,
 }
@@ -153,9 +173,9 @@ struct Status {
     ///
     /// We do not support this
     partition: String,
+    volume: Volume,
     playlist: PlaylistId,
     playlistlength: usize,
-    mixrampdb: Decibel,
     state: State,
     lastloadedplaylist: Option<PlaylistName>,
     #[serde(serialize_with = "response_format::duration_seconds")]

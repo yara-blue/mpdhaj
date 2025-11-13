@@ -21,6 +21,7 @@ where
         output: String::new(),
     };
     value.serialize(&mut serializer)?;
+    serializer.output += "OK\n";
     Ok(serializer.output)
 }
 
@@ -52,7 +53,7 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     // of the primitive types of the data model and map it to JSON by appending
     // into the output string.
     fn serialize_bool(self, v: bool) -> Result<()> {
-        self.output.push(if v { '0' } else { '1' });
+        self.output.push(if v { '1' } else { '0' });
         Ok(())
     }
 
@@ -115,9 +116,13 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     // get the idea. For example it would emit invalid JSON if the input string
     // contains a '"' character.
     fn serialize_str(self, v: &str) -> Result<()> {
-        self.output += "\"";
+        // if v.contains(char::is_whitespace) {
+        //     self.output += "\"";
+        // }
         self.output += v;
-        self.output += "\"";
+        // if v.contains(char::is_whitespace) {
+        //     self.output += "\"";
+        // }
         Ok(())
     }
 
@@ -135,7 +140,9 @@ impl<'a> ser::Serializer for &'a mut Serializer {
 
     // An absent optional is represented as the JSON `null`.
     fn serialize_none(self) -> Result<()> {
-        self.serialize_unit()
+        self.output
+            .truncate(self.output.rfind('\n').unwrap_or_default());
+        Ok(())
     }
 
     // A present optional is represented as just the contained value. Note that
@@ -220,7 +227,7 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     // explicitly in the serialized form. Some serializers may only be able to
     // support sequences for which the length is known up front.
     fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq> {
-        unimplemented!();
+        Ok(self)
     }
 
     // Tuples look just like sequences in JSON. Some formats may be able to
@@ -246,13 +253,10 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         self,
         _name: &'static str,
         _variant_index: u32,
-        variant: &'static str,
+        _variant: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeTupleVariant> {
-        self.output += "{";
-        variant.serialize(&mut *self)?;
-        self.output += ":[";
-        Ok(self)
+        unimplemented!()
     }
 
     // Maps are represented in JSON as `{ K: V, K: V, ... }`.
@@ -275,13 +279,10 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         self,
         _name: &'static str,
         _variant_index: u32,
-        variant: &'static str,
+        _variant: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeStructVariant> {
-        self.output += "{";
-        variant.serialize(&mut *self)?;
-        self.output += ":{";
-        Ok(self)
+        unimplemented!()
     }
 }
 
@@ -303,15 +304,11 @@ impl<'a> ser::SerializeSeq for &'a mut Serializer {
     where
         T: ?Sized + Serialize,
     {
-        if !self.output.ends_with('[') {
-            self.output += ",";
-        }
-        value.serialize(&mut **self)
+        value.serialize(&mut **self)?;
+        Ok(())
     }
 
-    // Close the sequence.
     fn end(self) -> Result<()> {
-        self.output += "]";
         Ok(())
     }
 }
@@ -462,16 +459,12 @@ impl<'a> ser::SerializeStructVariant for &'a mut Serializer {
     where
         T: ?Sized + Serialize,
     {
-        if !self.output.ends_with('{') {
-            self.output += ",";
-        }
         key.serialize(&mut **self)?;
         self.output += ":";
         value.serialize(&mut **self)
     }
 
     fn end(self) -> Result<()> {
-        // self.output += "}}";
         Ok(())
     }
 }
