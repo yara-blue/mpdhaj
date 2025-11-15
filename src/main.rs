@@ -29,7 +29,7 @@ fn main() -> Result<()> {
     let options = cli::Cli::parse();
 
     match options.command {
-        cli::Commands::Proxy { address } => proxy::handle_clients(&address)?,
+        cli::Commands::Proxy { address } => proxy::handle_clients(options.port, &address)?,
         cli::Commands::Run(args) => {
             let system = Arc::new(Mutex::new(
                 System::new(&args.playlist_dir).wrap_err("Could not start system")?,

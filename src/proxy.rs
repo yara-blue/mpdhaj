@@ -9,9 +9,9 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-pub fn handle_clients(addr: &str) -> Result<()> {
+pub fn handle_clients(port: u16, addr: &str) -> Result<()> {
     let addr: Arc<str> = addr.into();
-    let listener = TcpListener::bind("0.0.0.0:6600")?;
+    let listener = TcpListener::bind(format!("0.0.0.0:{port}"))?;
     for stream in listener.incoming() {
         let stream = stream.wrap_err("Could not accept connection")?;
         let writer = stream.try_clone().wrap_err("Clone failed")?;
