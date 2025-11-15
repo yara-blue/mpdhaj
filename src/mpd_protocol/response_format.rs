@@ -5,7 +5,7 @@ mod ser;
 
 use std::time::Duration;
 
-use crate::mpd_protocol::AudioParams;
+use crate::mpd_protocol::{response_format, AudioParams, SubSystem};
 
 pub use ser::to_string;
 
@@ -41,4 +41,9 @@ where
     S: serde::Serializer,
 {
     serializer.serialize_str(&format!("{samplerate}:{bits}:{channels}"))
+}
+
+pub fn subsystem(s: SubSystem) -> String {
+    let s = ser::to_string(&s).expect("Subsystem should always serialize");
+    format!("changed: {s}\nOK\n")
 }

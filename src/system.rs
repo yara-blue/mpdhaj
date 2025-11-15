@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
 use std::time::Duration;
+use tokio::sync::mpsc;
 
 use color_eyre::Result;
 use color_eyre::eyre::Context;
@@ -22,7 +22,7 @@ pub struct State {
 pub struct System {
     state: State,
     playlists: HashMap<PlaylistName, Vec<PathBuf>>,
-    idlers: HashMap<SubSystem, Vec<mpsc::Sender<String>>>,
+    idlers: HashMap<SubSystem, Vec<mpsc::Sender<SubSystem>>>,
 }
 
 impl System {
@@ -74,7 +74,14 @@ impl System {
         mpd_protocol::PlaylistInfo(vec![])
     }
 
-    pub fn idle(&self, subsystems: &[SubSystem]) -> String {
-        todo!()
+    pub fn idle(&mut self, subsystems: Vec<SubSystem>) -> mpsc::Receiver<SubSystem> {
+        let (tx, rx) = mpsc::channel(10);
+        for subsystem in subsystems {
+            self.idlers
+                .entry(subsystem)
+                .and_modify(|subscribers| subscribers.push(tx.clone()))
+                .or_insert_with(|| vec![tx.clone()]);
+        }
+        rx
     }
 }

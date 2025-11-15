@@ -15,7 +15,7 @@ use crate::playlist::PlaylistName;
 
 pub const VERSION: &'static str = "0.24.4";
 
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum SubSystem {
     /// the song database has been modified after update.
