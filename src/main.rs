@@ -19,8 +19,8 @@ use crate::{
 
 mod api;
 mod cli;
-mod playlist;
 mod mpd_protocol;
+mod playlist;
 mod proxy;
 mod system;
 
@@ -69,9 +69,17 @@ fn handle_client(
     for line in reader {
         let request = Command::parse(&line?)?;
         eprintln!("parsed request: {request:?}");
-        let response = api::perform_request(request, &system);
+        let mut response = api::perform_request(request, &system)?;
+
+        let response = if response.is_empty() {
+            "OK\n".to_owned()
+        } else {
+            response.push_str("\nOK\n");
+            response
+        };
+        eprintln!("reply: {response}");
         writer
-            .write_all(&response)
+            .write_all(response.as_bytes())
             .wrap_err("Failed to write response to client")?;
     }
     Ok(())
