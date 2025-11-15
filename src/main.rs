@@ -2,12 +2,14 @@ use std::sync::{Arc, Mutex};
 
 use clap::Parser;
 use color_eyre::{Result, eyre::Context};
+use futures::FutureExt;
 use itertools::Itertools;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::task;
 use tracing::info;
 
+use crate::mpd_protocol::SubSystem;
 use crate::{
     cli::{Cli, Commands},
     mpd_protocol::{Command, response_format},
@@ -75,19 +77,16 @@ async fn handle_client(
         .wrap_err("Could not get next line from client")?
     {
         let command = Command::parse(&line)?;
-        if let Command::Idle(sub_systems) = &command {
-            // wait for next line if noidle ok else bad client send bad
-            // &
-            // rx.recv()
-
-            // loop {
-            //     if let Some() reader.next()
-            //         rx.recv_timeout()
-            // }
-
-            system.lock().unwrap().idle(sub_systems);
-            // Command::NoIdle => todo!(),
-        }
+        let command = if let Command::Idle(sub_systems) = command {
+            let Some(command_after_idle) =
+                handle_idle(&mut reader, &mut writer, &system, sub_systems).await?
+            else {
+                return Ok(());
+            };
+            command_after_idle
+        } else {
+            command
+        };
         info!("parsed request: {command:?}");
         let mut response = perform_command(command, &system)?;
 
@@ -104,6 +103,48 @@ async fn handle_client(
             .wrap_err("Failed to write response to client")?;
     }
     Ok(())
+}
+
+async fn handle_idle(
+    reader: &mut tokio::io::Lines<impl AsyncBufRead + Unpin>,
+    writer: &mut (impl AsyncWrite + 'static + Unpin),
+    system: &Arc<Mutex<System>>,
+    sub_systems: Vec<SubSystem>,
+) -> Result<Option<Command>> {
+    let mut rx = system.lock().unwrap().idle(sub_systems);
+    enum Potato {
+        MpdEvent(Option<SubSystem>),
+        NextLine(Result<Option<String>, std::io::Error>),
+    }
+    let next_line = reader.next_line().map(Potato::NextLine);
+    let next_event = rx.recv().map(Potato::MpdEvent);
+    use futures_concurrency::prelude::*;
+    Ok(Some(match (next_line, next_event).race().await {
+        Potato::MpdEvent(Some(sub_system)) => {
+            writer
+                .write_all(mpd_protocol::response_format::subsystem(sub_system).as_bytes())
+                .await?;
+            let Some(line) = reader.next_line().await? else {
+                return Ok(None);
+            };
+            Command::parse(&line)?
+        }
+        Potato::MpdEvent(None) => unreachable!("System should not drop ever"),
+        Potato::NextLine(Ok(Some(l))) => {
+            let Ok(Command::NoIdle) = Command::parse(&l) else {
+                unreachable!("bad client, sent something other than noidle after idle");
+            };
+            let Some(line) = reader.next_line().await? else {
+                return Ok(None);
+            };
+            Command::parse(&line)?
+        }
+        Potato::NextLine(Ok(None)) => {
+            info!("client closed connection");
+            return Ok(None);
+        }
+        Potato::NextLine(_) => unreachable!("failed to read next line"),
+    }))
 }
 
 pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::Result<String> {
