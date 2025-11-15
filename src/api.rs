@@ -1,9 +1,9 @@
 use std::sync::{Arc, Mutex};
 
-use crate::{protocol::Command, system::System};
+use crate::{mpd_protocol::Command, system::System};
 
 pub fn perform_request(request: Command, state: &Mutex<System>) -> Vec<u8> {
-    let lines = match request {
+    let reply_lines = match request {
         Command::BinaryLimit(_) => Vec::new(),
         Command::Commands => supported_command_list(),
         Command::Status => todo!(),
@@ -15,8 +15,19 @@ pub fn perform_request(request: Command, state: &Mutex<System>) -> Vec<u8> {
         Command::PlayId(pos_in_playlist) => todo!(),
         Command::Clear => todo!(),
         Command::Load(playlist_name) => todo!(),
+        Command::LsInfo(path_buf) => todo!(),
+        Command::Volume(volume_change) => todo!(),
     };
-    todo!()
+    let reply = if reply_lines.is_empty() {
+        "OK\n".to_owned()
+    } else {
+        let mut reply = reply_lines.join("\n");
+        reply.push_str("\nOK\n");
+        reply
+    };
+
+    eprintln!("reply: {reply}");
+    reply.into_bytes()
 }
 
 fn supported_command_list() -> Vec<String> {
@@ -24,6 +35,6 @@ fn supported_command_list() -> Vec<String> {
     Command::VARIANTS
         .into_iter()
         .map(|name| name.replace("-", ""))
-        .map(|command| format!("command: {command}\n"))
+        .map(|command| format!("command: {command}"))
         .collect()
 }

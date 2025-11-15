@@ -5,9 +5,9 @@ use std::{
 
 use rodio::nz;
 
-use crate::protocol::{
+use crate::mpd_protocol::{
     AudioParams, IdInPlaylist, PlaylistEntry, PlaylistId, PlaylistInfo, PosInPlaylist, SongId,
-    SongNumber, State, Status, Volume, response_format,
+    SongNumber, PlaybackState, Status, Volume, response_format,
 };
 
 #[test]
@@ -22,7 +22,7 @@ fn serialize_status() {
             volume: Volume::new(50),
             playlist: PlaylistId(22),
             playlistlength: 0,
-            state: State::Stop,
+            state: PlaybackState::Stop,
             lastloadedplaylist: None,
             xfade: Duration::from_secs(5),
             song: SongNumber(5),

@@ -11,6 +11,8 @@ use rodio::{ChannelCount, SampleRate};
 use serde::{Deserialize, Serialize};
 use strum::EnumString;
 
+use crate::playlist::PlaylistName;
+
 pub const VERSION: &'static str = "0.24.4";
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -62,6 +64,9 @@ pub enum Command {
     /// Remove all items from the Queue
     Clear,
     Load(PlaylistName),
+    /// Mpd supports URI's here we only play files though so we use a path.
+    LsInfo(PathBuf),
+    Volume(VolumeChange),
 }
 
 impl Command {
@@ -78,10 +83,13 @@ struct PlayList {
 }
 
 #[derive(Debug, Serialize)]
-struct PlaylistId(u32);
+pub struct PlaylistId(pub u32);
+
+#[derive(Debug, Default, Deserialize, PartialEq, Eq)]
+pub struct VolumeChange(pub i8);
 
 #[derive(Debug, Serialize)]
-struct Volume(u8);
+pub struct Volume(u8);
 
 impl Volume {
     pub fn new(val: u8) -> Self {
@@ -96,22 +104,20 @@ impl Volume {
     }
 }
 
-#[derive(Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
-pub struct PlaylistName(String);
 
 #[derive(Debug, Serialize)]
-struct SongId(u32);
+pub struct SongId(pub u32);
 #[derive(Debug, Serialize)]
-struct SongNumber(u32);
+pub struct SongNumber(pub u32);
 
 #[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PosInPlaylist(u32);
 #[derive(Debug, Serialize)]
 struct IdInPlaylist(u32);
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
-enum State {
+pub enum PlaybackState {
     Play,
     Pause,
     Stop,
@@ -119,10 +125,10 @@ enum State {
 
 // custom serialize as: samplerate:bits:channels
 #[derive(Debug, Serialize)]
-struct AudioParams {
-    samplerate: SampleRate,
-    bits: usize,
-    channels: ChannelCount,
+pub struct AudioParams {
+    pub samplerate: SampleRate,
+    pub bits: usize,
+    pub channels: ChannelCount,
 }
 
 #[derive(Serialize)]
@@ -135,7 +141,7 @@ pub struct PlaylistEntry {
     file: PathBuf,
     #[serde(rename = "Last-Modified")]
     last_modified: jiff::Timestamp, // as 2025-06-15T22:06:58Z
-    added: jiff::Timestamp,         // as 2025-06-15T22:06:58Z
+    added: jiff::Timestamp, // as 2025-06-15T22:06:58Z
     #[serde(serialize_with = "response_format::audio_params")]
     format: AudioParams,
     artist: String,
@@ -160,11 +166,11 @@ pub struct PlaylistEntry {
 }
 
 #[derive(Serialize, Debug)]
-struct Status {
-    repeat: bool,
-    random: bool,
-    single: bool,
-    consume: bool,
+pub struct Status {
+    pub repeat: bool,
+    pub random: bool,
+    pub single: bool,
+    pub consume: bool,
     /// Name of the current partition
     ///
     /// A partition is one frontend of a multi-player MPD process: it has
@@ -172,25 +178,25 @@ struct Status {
     /// partition at a time.
     ///
     /// We do not support this
-    partition: String,
-    volume: Volume,
-    playlist: PlaylistId,
-    playlistlength: usize,
-    state: State,
-    lastloadedplaylist: Option<PlaylistName>,
+    pub partition: String,
+    pub volume: Volume,
+    pub playlist: PlaylistId,
+    pub playlistlength: usize,
+    pub state: PlaybackState,
+    pub lastloadedplaylist: Option<PlaylistName>,
     #[serde(serialize_with = "response_format::duration_seconds")]
-    xfade: Duration,
-    song: SongNumber,
-    songid: SongId,
+    pub xfade: Duration,
+    pub song: SongNumber,
+    pub songid: SongId,
     #[serde(serialize_with = "response_format::duration_millis_precise")]
-    elapsed: Duration,
-    bitrate: usize,
+    pub elapsed: Duration,
+    pub bitrate: usize,
     /// Duration of the current song in seconds
     #[serde(serialize_with = "response_format::duration_millis_precise")]
-    duration: Duration,
+    pub duration: Duration,
     #[serde(serialize_with = "response_format::audio_params")]
-    audio: AudioParams,
-    error: String,
-    nextsong: SongNumber,
-    nextsongid: SongId,
+    pub audio: AudioParams,
+    pub error: String,
+    pub nextsong: SongNumber,
+    pub nextsongid: SongId,
 }
