@@ -6,13 +6,10 @@ use itertools::Itertools;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::task;
-use tracing::info;
+use tracing::{info, warn};
 
-use crate::mpd_protocol::{self, SubSystem};
-use crate::{
-    mpd_protocol::{Command, response_format},
-    system::System,
-};
+use crate::mpd_protocol::{self, SubSystem, response_format};
+use crate::{mpd_protocol::Command, system::System};
 
 pub(crate) async fn handle_clients(system: Arc<std::sync::Mutex<System>>) -> Result<()> {
     let listener = TcpListener::bind("0.0.0.0:6600").await?;
@@ -68,7 +65,7 @@ async fn handle_client(
             response.push_str("\nOK\n");
             response
         };
-        info!("reply: {response}");
+        eprintln!("reply: {response}");
         writer
             .write_all(response.as_bytes())
             .await
@@ -83,6 +80,8 @@ async fn handle_idle(
     system: &Arc<Mutex<System>>,
     sub_systems: Vec<SubSystem>,
 ) -> Result<Option<Command>> {
+    use futures_concurrency::prelude::*;
+
     let mut rx = system.lock().unwrap().idle(sub_systems);
     enum Potato {
         MpdEvent(Option<SubSystem>),
@@ -90,11 +89,11 @@ async fn handle_idle(
     }
     let next_line = reader.next_line().map(Potato::NextLine);
     let next_event = rx.recv().map(Potato::MpdEvent);
-    use futures_concurrency::prelude::*;
+
     Ok(Some(match (next_line, next_event).race().await {
         Potato::MpdEvent(Some(sub_system)) => {
             writer
-                .write_all(mpd_protocol::response_format::subsystem(sub_system).as_bytes())
+                .write_all(response_format::subsystem(sub_system).as_bytes())
                 .await?;
             let Some(line) = reader.next_line().await? else {
                 return Ok(None);
@@ -102,20 +101,23 @@ async fn handle_idle(
             Command::parse(&line)?
         }
         Potato::MpdEvent(None) => unreachable!("System should not drop ever"),
-        Potato::NextLine(Ok(Some(l))) => {
-            let Ok(Command::NoIdle) = Command::parse(&l) else {
-                unreachable!("bad client, sent something other than noidle after idle");
-            };
-            let Some(line) = reader.next_line().await? else {
-                return Ok(None);
-            };
-            Command::parse(&line)?
+        Potato::NextLine(Ok(Some(line))) => {
+            let command = Command::parse(&line)?;
+            if let Command::NoIdle = command {
+                let Some(line) = reader.next_line().await? else {
+                    return Ok(None);
+                };
+                Command::parse(&line)?
+            } else {
+                warn!("bad client, sent something other than noidle after idle");
+                command
+            }
         }
         Potato::NextLine(Ok(None)) => {
             info!("client closed connection");
             return Ok(None);
         }
-        Potato::NextLine(_) => unreachable!("failed to read next line"),
+        Potato::NextLine(Err(e)) => Err(e).wrap_err("Could not get next line from client")?,
     }))
 }
 
