@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 use std::time::Duration;
 
 use color_eyre::Result;
@@ -7,7 +8,7 @@ use color_eyre::eyre::Context;
 use rodio::nz;
 
 use crate::mpd_protocol::{
-    self, AudioParams, PlaybackState, PlaylistId, SongId, SongNumber, Volume,
+    self, AudioParams, PlaybackState, PlaylistId, SongId, SongNumber, SubSystem, Volume,
 };
 use crate::playlist::{self, PlaylistName};
 
@@ -21,6 +22,7 @@ pub struct State {
 pub struct System {
     state: State,
     playlists: HashMap<PlaylistName, Vec<PathBuf>>,
+    idlers: HashMap<SubSystem, Vec<mpsc::Sender<String>>>,
 }
 
 impl System {
@@ -28,7 +30,11 @@ impl System {
         let state = State::open_path("mpdhaj_database").wrap_err("Could not open db")?;
         let playlists =
             playlist::load_from_dir(playlist_dir).wrap_err("Failed to load playlists")?;
-        Ok(System { state, playlists })
+        Ok(System {
+            state,
+            playlists,
+            idlers: Default::default(),
+        })
     }
 
     pub fn status(&self) -> mpd_protocol::Status {
@@ -60,7 +66,15 @@ impl System {
         }
     }
 
-    pub fn playlist_info(&self) -> mpd_protocol::PlaylistInfo {
+    pub fn queue(&self) -> mpd_protocol::PlaylistInfo {
         mpd_protocol::PlaylistInfo(vec![])
+    }
+
+    pub fn playlists(&self) -> mpd_protocol::PlaylistInfo {
+        mpd_protocol::PlaylistInfo(vec![])
+    }
+
+    pub fn idle(&self, subsystems: &[SubSystem]) -> String {
+        todo!()
     }
 }
