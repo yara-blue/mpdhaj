@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use strum::IntoEnumIterator;
 use tokio::sync::mpsc;
 
 use color_eyre::Result;
@@ -74,7 +75,11 @@ impl System {
         mpd_protocol::PlaylistInfo(vec![])
     }
 
-    pub fn idle(&mut self, subsystems: Vec<SubSystem>) -> mpsc::Receiver<SubSystem> {
+    pub fn idle(&mut self, mut subsystems: Vec<SubSystem>) -> mpsc::Receiver<SubSystem> {
+        if subsystems.is_empty() {
+            subsystems.extend(SubSystem::iter());
+        }
+
         let (tx, rx) = mpsc::channel(10);
         for subsystem in subsystems {
             self.idlers
