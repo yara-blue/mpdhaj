@@ -10,7 +10,9 @@ pub fn perform_request(request: Command, system: &Mutex<System>) -> color_eyre::
         Command::BinaryLimit(_) => String::new(),
         Command::Commands => supported_command_list(),
         Command::Status => response_format::to_string(&system.lock().unwrap().status())?,
-        Command::PlaylistInfo => response_format::to_string(&system.lock()),
+        Command::PlaylistInfo => {
+            response_format::to_string(&system.lock().unwrap().playlist_info())?
+        }
         Command::ListPlayLists => todo!(),
         Command::Idle(sub_systems) => todo!(),
         Command::NoIdle => todo!(),

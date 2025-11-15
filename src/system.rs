@@ -60,7 +60,7 @@ impl System {
         }
     }
 
-    pub fn playlist_info() -> mpd_protocol::PlaylistInfo {
+    pub fn playlist_info(&self) -> mpd_protocol::PlaylistInfo {
         mpd_protocol::PlaylistInfo(vec![])
     }
 }
