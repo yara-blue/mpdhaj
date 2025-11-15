@@ -4,6 +4,9 @@ use std::path::PathBuf;
 pub(crate) struct Cli {
     #[command(subcommand)]
     pub command: Commands,
+    /// The port mpdhaj is running or proxying on
+    #[clap(default_value_t = 6600)]
+    pub(crate) port: u16,
 }
 
 impl Cli {

@@ -59,4 +59,8 @@ impl System {
             nextsongid: SongId(1),
         }
     }
+
+    pub fn playlist_info() -> mpd_protocol::PlaylistInfo {
+        mpd_protocol::PlaylistInfo(vec![])
+    }
 }

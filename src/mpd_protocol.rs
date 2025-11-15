@@ -1,5 +1,5 @@
-mod command_format;
-mod response_format;
+pub mod command_format;
+pub mod response_format;
 
 use std::{
     path::PathBuf,
@@ -132,7 +132,7 @@ pub struct AudioParams {
 }
 
 #[derive(Serialize)]
-pub struct PlaylistInfo(Vec<PlaylistEntry>);
+pub struct PlaylistInfo(pub Vec<PlaylistEntry>);
 
 #[derive(Serialize)]
 #[serde(rename_all = "PascalCase")]
