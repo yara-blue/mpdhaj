@@ -1,4 +1,4 @@
-use crate::protocol::{Command, PlaylistName, SubSystem};
+use crate::mpd_protocol::{Command, PlaylistName, SubSystem};
 
 #[test]
 fn parse_commands() {
