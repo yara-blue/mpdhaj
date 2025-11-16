@@ -28,6 +28,8 @@ pub(crate) async fn handle_clients(system: Arc<std::sync::Mutex<System>>) -> Res
                 // use eprintln instead of tracing::warn as color_eyre gives
                 // us pretty colors that we dont get to see with tracing
                 eprintln!("error handling client: {e:?}");
+            } else {
+                info!("Client disconnected");
             }
         });
     }
@@ -50,6 +52,7 @@ async fn handle_client(
     {
         let command = Command::parse(&line)?;
         let command = if let Command::Idle(sub_systems) = command {
+            acknowledge(&mut writer).await?;
             let Some(command_after_idle) =
                 handle_idle(&mut reader, &mut writer, &system, sub_systems).await?
             else {
@@ -59,7 +62,6 @@ async fn handle_client(
         } else {
             command
         };
-        info!("parsed request: {command:?}");
         let mut response = perform_command(command, &system)?;
 
         response.push_str("OK\n");
@@ -91,7 +93,7 @@ async fn handle_idle(
     let next_line = reader.next_line().map(Potato::NextLine);
     let next_event = rx.recv().map(Potato::MpdEvent);
 
-    Ok(Some(match dbg!((next_line, next_event).race().await) {
+    Ok(Some(match (next_line, next_event).race().await {
         Potato::MpdEvent(Some(sub_system)) => {
             writer
                 .write_all(response_format::subsystem(sub_system).as_bytes())
@@ -105,13 +107,17 @@ async fn handle_idle(
         Potato::NextLine(Ok(Some(line))) => {
             let command = Command::parse(&line)?;
             if let Command::NoIdle = command {
+                acknowledge(writer).await?;
                 debug!("Waiting for command after idle");
                 let Some(line) = reader.next_line().await? else {
                     return Ok(None);
                 };
                 Command::parse(&line)?
             } else {
-                warn!("bad client, sent something other than noidle after idle");
+                warn!(
+                    "bad client, sent something other than noidle after idle. \
+                    The client send us: {command:?}"
+                );
                 command
             }
         }
@@ -121,6 +127,13 @@ async fn handle_idle(
         }
         Potato::NextLine(Err(e)) => Err(e).wrap_err("Could not get next line from client")?,
     }))
+}
+
+async fn acknowledge(writer: &mut (impl AsyncWrite + 'static + Unpin)) -> Result<()> {
+    writer
+        .write_all(b"OK\n")
+        .await
+        .wrap_err("Failed to acknowledge client")
 }
 
 pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::Result<String> {
