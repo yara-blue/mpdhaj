@@ -14,6 +14,8 @@ mod mpd_protocol;
 mod playlist;
 mod proxy;
 mod system;
+/// pub so doctests work
+pub mod util;
 
 #[tokio::main(flavor = "local")]
 async fn main() -> Result<()> {

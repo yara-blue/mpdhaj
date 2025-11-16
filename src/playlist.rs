@@ -12,7 +12,7 @@ use color_eyre::{
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Deserialize, Serialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq, Hash)]
 pub struct PlaylistName(pub String);
 
 pub fn load_from_dir(path: &Path) -> Result<HashMap<PlaylistName, Vec<PathBuf>>> {

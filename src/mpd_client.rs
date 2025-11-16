@@ -1,12 +1,13 @@
 use std::sync::{Arc, Mutex};
 
+use color_eyre::Section;
 use color_eyre::{Result, eyre::Context};
 use futures::FutureExt;
 use itertools::Itertools;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::task;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::mpd_protocol::{self, SubSystem, response_format};
 use crate::{mpd_protocol::Command, system::System};
@@ -24,7 +25,9 @@ pub(crate) async fn handle_clients(system: Arc<std::sync::Mutex<System>>) -> Res
         let system = Arc::clone(&system);
         task::spawn(async move {
             if let Err(e) = handle_client(reader, writer, system).await {
-                info!("error handling client: {e:?}");
+                // use eprintln instead of tracing::warn as color_eyre gives
+                // us pretty colors that we dont get to see with tracing
+                eprintln!("error handling client: {e:?}");
             }
         });
     }
@@ -59,13 +62,8 @@ async fn handle_client(
         info!("parsed request: {command:?}");
         let mut response = perform_command(command, &system)?;
 
-        let response = if response.is_empty() {
-            "OK\n".to_owned()
-        } else {
-            response.push_str("\nOK\n");
-            response
-        };
-        eprintln!("reply: {response}");
+        response.push_str("OK\n");
+        debug!("reply: {response}");
         writer
             .write_all(response.as_bytes())
             .await
@@ -74,6 +72,7 @@ async fn handle_client(
     Ok(())
 }
 
+#[tracing::instrument(skip_all, fields(sub_systems))]
 async fn handle_idle(
     reader: &mut tokio::io::Lines<impl AsyncBufRead + Unpin>,
     writer: &mut (impl AsyncWrite + 'static + Unpin),
@@ -81,8 +80,10 @@ async fn handle_idle(
     sub_systems: Vec<SubSystem>,
 ) -> Result<Option<Command>> {
     use futures_concurrency::prelude::*;
+    debug!("Entering idle mode");
 
     let mut rx = system.lock().unwrap().idle(sub_systems);
+    #[derive(Debug)]
     enum Potato {
         MpdEvent(Option<SubSystem>),
         NextLine(Result<Option<String>, std::io::Error>),
@@ -90,7 +91,7 @@ async fn handle_idle(
     let next_line = reader.next_line().map(Potato::NextLine);
     let next_event = rx.recv().map(Potato::MpdEvent);
 
-    Ok(Some(match (next_line, next_event).race().await {
+    Ok(Some(match dbg!((next_line, next_event).race().await) {
         Potato::MpdEvent(Some(sub_system)) => {
             writer
                 .write_all(response_format::subsystem(sub_system).as_bytes())
@@ -104,6 +105,7 @@ async fn handle_idle(
         Potato::NextLine(Ok(Some(line))) => {
             let command = Command::parse(&line)?;
             if let Command::NoIdle = command {
+                debug!("Waiting for command after idle");
                 let Some(line) = reader.next_line().await? else {
                     return Ok(None);
                 };
@@ -122,27 +124,42 @@ async fn handle_idle(
 }
 
 pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::Result<String> {
+    use Command as C;
+    let system = system.lock().expect("No thread should ever panick");
     Ok(match request {
-        Command::BinaryLimit(_) => String::new(),
-        Command::Commands => supported_command_list(),
-        Command::Status => response_format::to_string(&system.lock().unwrap().status())?,
-        Command::PlaylistInfo => response_format::to_string(&system.lock().unwrap().queue())?,
-        Command::ListPlayLists => response_format::to_string(&system.lock().unwrap().playlists())?,
-        Command::ListPlaylistInfo(playlist_names) => todo!(),
-        Command::PlayId(pos_in_playlist) => todo!(),
-        Command::Clear => todo!(),
-        Command::Load(playlist_name) => todo!(),
-        Command::LsInfo(path_buf) => todo!(),
-        Command::Volume(volume_change) => todo!(),
-        Command::Idle(_) | Command::NoIdle => panic!("These should be handled in the outer loop"),
+        C::BinaryLimit(_) => String::new(),
+        C::Commands => supported_command_list(),
+        C::Status => {
+            response_format::to_string(&system.status()).wrap_err("Failed to get system status")?
+        }
+        C::PlaylistInfo => {
+            response_format::to_string(&system.queue().wrap_err("Failed to get current queue")?)?
+        }
+        C::ListPlayLists => response_format::to_string(&system.playlists())
+            .wrap_err("Failed to get list of playlists")?,
+        C::ListPlaylistInfo(playlist_name) => response_format::to_string(
+            &system
+                .get_playlist(&playlist_name)
+                .wrap_err("Failed to get playlist")
+                .with_note(|| format!("playlist name: {playlist_name:?}"))?,
+        )?,
+        C::PlayId(pos_in_playlist) => todo!(),
+        C::Clear => todo!(),
+        C::Load(playlist_name) => todo!(),
+        C::LsInfo(path_buf) => todo!(),
+        C::Volume(volume_change) => todo!(),
+        C::Play => todo!(),
+        C::Idle(_) | Command::NoIdle => panic!("These should be handled in the outer loop"),
     })
 }
 
 fn supported_command_list() -> String {
     use strum::VariantNames;
-    Command::VARIANTS
+    let mut list = Command::VARIANTS
         .into_iter()
         .map(|name| name.replace("-", ""))
         .map(|command| format!("command: {command}"))
-        .join("\n")
+        .join("\n");
+    list.push('\n');
+    list
 }

@@ -7,9 +7,11 @@ use std::{
 };
 
 use color_eyre::eyre::Context;
-use rodio::{ChannelCount, SampleRate};
+use jiff::Timestamp;
+use rodio::{ChannelCount, SampleRate, nz};
 use serde::{Deserialize, Serialize};
 use strum::EnumString;
+use tracing::instrument;
 
 use crate::playlist::PlaylistName;
 
@@ -67,19 +69,32 @@ pub enum Command {
     /// Mpd supports URI's here we only play files though so we use a path.
     LsInfo(PathBuf),
     Volume(VolumeChange),
+    /// Unpause
+    Play,
 }
 
 impl Command {
+    #[instrument(level="debug", ret)]
     pub(crate) fn parse(line: &str) -> color_eyre::Result<Self> {
         command_format::from_str(line).wrap_err("Could not deserialize line")
     }
 }
 
-struct PlaylistList(Vec<PlayList>);
+#[derive(Debug, Serialize)]
+pub struct PlaylistList(pub Vec<PlayList>);
 
-struct PlayList {
-    playlist: String,
-    last_modified: SystemTime,
+#[derive(Debug, Serialize)]
+pub struct PlayList {
+    playlist: PlaylistName,
+    last_modified: jiff::Timestamp,
+}
+impl PlayList {
+    pub(crate) fn from_name(name: PlaylistName) -> PlayList {
+        PlayList {
+            playlist: name,
+            last_modified: jiff::Timestamp::new(42, 42).unwrap(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -104,16 +119,13 @@ impl Volume {
     }
 }
 
-
-#[derive(Debug, Serialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct SongId(pub u32);
 #[derive(Debug, Serialize)]
 pub struct SongNumber(pub u32);
 
 #[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PosInPlaylist(u32);
-#[derive(Debug, Serialize)]
-struct IdInPlaylist(u32);
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
@@ -162,7 +174,38 @@ pub struct PlaylistEntry {
     #[serde(rename = "duration")]
     duration: Duration,
     pos: PosInPlaylist,
-    id: IdInPlaylist,
+    id: SongId,
+}
+
+impl PlaylistEntry {
+    /// almost all fields are todo!
+    pub fn mostly_fake(pos: usize, id: SongId, song: crate::system::Song) -> Self {
+        Self {
+            file: song.file,
+            last_modified: Timestamp::constant(0, 0),
+            added: Timestamp::constant(0, 0),
+            format: AudioParams {
+                samplerate: nz!(42),
+                bits: 16,
+                channels: nz!(42),
+            },
+            artist: "todo".to_string(),
+            album_artist: "todo".to_string(),
+            title: "todo".to_string(),
+            album: "todo".to_string(),
+            track: 42,
+            date: "todo".to_string(),
+            genre: None,
+            label: "todo".to_string(),
+            disc: None,
+            duration: Duration::ZERO,
+            pos: PosInPlaylist(
+                pos.try_into()
+                    .expect("You should not have 4 billion soungs"),
+            ),
+            id,
+        }
+    }
 }
 
 #[derive(Serialize, Debug)]

@@ -21,7 +21,6 @@ where
         output: String::new(),
     };
     value.serialize(&mut serializer)?;
-    serializer.output += "OK\n";
     Ok(serializer.output)
 }
 

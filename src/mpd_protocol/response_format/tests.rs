@@ -59,7 +59,6 @@ audio: 44100:24:2
 error: Failed to open \"usb dac attached to pi\" (alsa); Failed to open ALSA device \"hw:CARD=UD110v2,DEV=1\": No such device
 nextsong: 1
 nextsongid: 1
-OK
 "
     );
 }
@@ -182,7 +181,6 @@ Label: Atlantic Records
 duration: 183.448
 Pos: 2
 Id: 296
-OK
 "
     );
 }
