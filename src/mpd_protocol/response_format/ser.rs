@@ -312,9 +312,6 @@ impl<'a> ser::SerializeSeq for &'a mut Serializer {
     }
 }
 
-struct TupleSerializer {
-}
-
 // Same thing but for tuples.
 impl<'a> ser::SerializeTuple for &'a mut Serializer {
     type Ok = ();
@@ -324,12 +321,14 @@ impl<'a> ser::SerializeTuple for &'a mut Serializer {
     where
         T: ?Sized + Serialize,
     {
-        self.output += ":";
-        value.serialize(&mut **self)?;
-        Ok(())
+        if !self.output.ends_with('[') {
+            self.output += ",";
+        }
+        value.serialize(&mut **self)
     }
 
     fn end(self) -> Result<()> {
+        self.output += "]";
         Ok(())
     }
 }

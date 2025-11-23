@@ -187,7 +187,26 @@ pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::
                 .with_note(|| format!("song path: {song:?}"))?;
             String::new()
         }
-        C::Idle(_) | Command::NoIdle => panic!("These should be handled in the outer loop"),
+        C::Find(query) => response_format::to_string(
+            &system
+                .handle_find(&query)
+                .wrap_err("Failed to handle find")
+                .with_note(|| format!("query: {query:?}"))?,
+        )?,
+        C::FindAdd(query) => {
+            let results = system
+                .handle_find(&query)
+                .wrap_err("Failed to handle find")
+                .with_note(|| format!("query: {query:?}"))?;
+            for result in results {
+                system
+                    .add_to_queue(&result.file)
+                    .wrap_err("Could not add matching song to queue")
+                    .with_note(|| format!("song: {result:?}"))?
+            }
+            String::new()
+        }
+        C::Idle(_) | C::NoIdle => panic!("These should be handled in the outer loop"),
     })
 }
 

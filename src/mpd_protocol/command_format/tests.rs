@@ -1,4 +1,9 @@
-use crate::mpd_protocol::{Command, List, PlaylistName, SubSystem};
+use std::path::{Path, PathBuf};
+
+use crate::mpd_protocol::{
+    Command, List, PlaylistName, SubSystem,
+    query::{Filter, Query, QueryNode},
+};
 
 #[test]
 fn parse_commands() {
@@ -42,4 +47,16 @@ fn parse_list_with_group() {
             group_by: vec![crate::mpd_protocol::Tag::AlbumArtist],
         })
     );
+}
+
+#[test]
+fn parse_findadd() {
+    use crate::mpd_protocol::Tag;
+    assert_eq!(Command::parse(
+        "findadd \"((Artist == 'ABBA') AND (Album == '') AND (File == 'ABBA/The Singles. The First Fifty Years/34. I Still Have Faith In You.mp3'))\"").unwrap(),
+        Command::FindAdd(Query(QueryNode::And(vec![
+            QueryNode::Filter(Filter::TagEqual { tag: Tag::Artist, needle: "ABBA".to_string() }),
+            QueryNode::Filter(Filter::TagEqual { tag: Tag::Album, needle: "".to_string() }), QueryNode::Filter(Filter::PathEqual(Path::new("ABBA/The Singles. The First Fifty Years/34. I Still Have Faith In You.mp3'").to_path_buf()))
+        ])))
+    )
 }

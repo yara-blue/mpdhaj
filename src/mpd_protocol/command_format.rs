@@ -5,7 +5,10 @@ mod error;
 pub use de::from_str;
 use serde::{Deserialize, de::Visitor};
 
-use crate::mpd_protocol::{List, Tag};
+use crate::mpd_protocol::{
+    List, Tag,
+    query::{self, Query},
+};
 
 #[cfg(test)]
 mod tests;
@@ -33,14 +36,14 @@ impl<'de> Visitor<'de> for ListVisitor {
             }
         }
 
-        return Ok(List {
+        Ok(List {
             tag_to_list,
             group_by,
-        });
+        })
     }
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("could not deserialize mpd list argument group")
+        formatter.write_str("Mpd List arguments")
     }
 }
 
@@ -50,5 +53,39 @@ impl<'de> Deserialize<'de> for List {
         D: serde::Deserializer<'de>,
     {
         deserializer.deserialize_seq(ListVisitor {})
+    }
+}
+
+impl<'de> Deserialize<'de> for Query {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_seq(QueryVisitor {})
+    }
+}
+
+struct QueryVisitor {}
+
+impl<'de> Visitor<'de> for QueryVisitor {
+    type Value = Query;
+
+    fn visit_seq<A>(self, seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: serde::de::SeqAccess<'de>,
+    {
+        let mut seq = seq;
+        // hackish and ugly I know :(
+        let mut query = String::new();
+        while let Some(next) = seq.next_element::<String>().unwrap() {
+            query.push_str(&next);
+        }
+
+        use serde::de::Error;
+        query::parse(&query).map_err(|report| A::Error::custom(report))
+    }
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("Mpd query")
     }
 }

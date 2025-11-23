@@ -6,17 +6,20 @@ use std::time::Duration;
 use strum::IntoEnumIterator;
 use tokio::sync::mpsc;
 
-use color_eyre::eyre::{Context, OptionExt};
+use color_eyre::eyre::{Context, OptionExt, eyre};
 use color_eyre::{Report, Result, Section};
 use rodio::nz;
 
+use crate::mpd_protocol::query::Query;
 use crate::mpd_protocol::{
-    self, AudioParams, PlayList, PlaybackState, PlaylistEntry, PlaylistId, PlaylistInfo, SongId,
-    SongNumber, SubSystem, Tag, Volume,
+    self, AudioParams, FindResult, PlayList, PlaybackState, PlaylistEntry, PlaylistId,
+    PlaylistInfo, SongId, SongNumber, SubSystem, Tag, Volume,
 };
 use crate::playlist::{self, PlaylistName};
 use crate::scan::{self, MetaData};
 use crate::util::WhatItertoolsIsMissing;
+
+mod query;
 
 // If this ever gets too slow we can see what we need to cache
 #[dbstruct::dbstruct(db=sled)]
@@ -84,6 +87,7 @@ impl System {
                     file: metadata.file,
                     title: metadata.title,
                     artist: metadata.artist,
+                    album: metadata.album
                 })
                 .unwrap();
         })
@@ -245,10 +249,10 @@ impl System {
             .db
             .library()
             .iter()
-            .map_ok(|_song| match tag_to_list {
-                Tag::Album => "todo".to_string(),
+            .map_ok(|song| match tag_to_list {
+                Tag::Album => song.album,
                 Tag::AlbumArtist => "todo".to_string(),
-                Tag::Artist => "todo".to_string(),
+                Tag::Artist => song.artist,
             })
             .map_ok(|tag_value| format!("{tag_to_list}: {tag_value}"))
             .collect::<Result<Vec<_>, _>>()
@@ -258,6 +262,10 @@ impl System {
         list.push('\n');
         Ok(list)
     }
+
+    pub fn handle_find(&self, query: &Query) -> Result<Vec<FindResult>> {
+        query::handle_find(self, query)
+    }
 }
 
 #[derive(Deserialize, Serialize)]
@@ -265,4 +273,5 @@ pub struct Song {
     pub file: PathBuf,
     pub title: String,
     pub artist: String,
+    pub album: String,
 }

@@ -26,6 +26,7 @@ impl FormatScanner for Scanner {
             title: tag.title().unwrap_or(UNKNOWN.into()).to_string(),
             file: path,
             artist: tag.artist().unwrap_or(UNKNOWN.into()).to_string(),
+            album: tag.album().unwrap_or(UNKNOWN.into()).to_string(),
         }))
     }
 }

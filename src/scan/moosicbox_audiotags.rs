@@ -33,6 +33,11 @@ impl FormatScanner for Scanner {
             title: tag.title().unwrap_or(UNKNOWN).to_string(),
             file: path,
             artist: tag.artist().unwrap_or(UNKNOWN).to_string(),
+            album: tag
+                .album()
+                .map(|album| album.title)
+                .unwrap_or(UNKNOWN)
+                .to_string(),
         }))
     }
 }

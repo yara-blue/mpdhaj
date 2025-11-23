@@ -1,4 +1,5 @@
 pub mod command_format;
+pub mod query;
 pub mod response_format;
 
 use std::{path::PathBuf, time::Duration};
@@ -10,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use strum::EnumString;
 use tracing::instrument;
 
-use crate::playlist::PlaylistName;
+use crate::{mpd_protocol::query::Query, playlist::PlaylistName};
 
 pub const VERSION: &'static str = "0.24.4";
 
@@ -71,6 +72,8 @@ pub enum Command {
     /// Add an item to the queue
     Add(PathBuf),
     List(List),
+    Find(Query),
+    FindAdd(Query),
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -81,7 +84,7 @@ pub struct List {
 }
 
 #[derive(
-    Debug, Default, Deserialize, Serialize, strum_macros::Display, PartialEq, Eq,
+    Debug, Default, Deserialize, Serialize, strum_macros::Display, PartialEq, Eq, Clone, Copy,
 )]
 // #[serde(rename_all = "lowercase")]
 pub enum Tag {
@@ -195,6 +198,21 @@ pub struct PlaylistEntry {
     duration: Duration,
     pos: PosInPlaylist,
     id: SongId,
+}
+
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "PascalCase")]
+pub struct FindResult {
+    #[serde(rename = "file")]
+    pub file: PathBuf,
+    #[serde(rename = "Last-Modified")]
+    pub last_modified: jiff::Timestamp,
+    pub added: jiff::Timestamp,
+    #[serde(serialize_with = "response_format::audio_params")]
+    pub format: AudioParams,
+    #[serde(serialize_with = "response_format::duration_millis_precise")]
+    #[serde(rename = "duration")]
+    pub duration: Duration,
 }
 
 impl PlaylistEntry {

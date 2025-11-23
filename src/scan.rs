@@ -16,6 +16,7 @@ mod moosicbox_audiotags;
 pub struct MetaData {
     pub title: String,
     pub artist: String,
+    pub album: String,
     pub file: PathBuf,
 }
 
