@@ -5,7 +5,7 @@ mod ser;
 
 use std::time::Duration;
 
-use crate::mpd_protocol::{response_format, AudioParams, SubSystem};
+use crate::mpd_protocol::{AudioParams, SubSystem};
 
 pub use ser::to_string;
 

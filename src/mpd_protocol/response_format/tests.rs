@@ -1,13 +1,10 @@
-use std::{
-    path::Path,
-    time::{Duration, SystemTime},
-};
+use std::{path::Path, time::Duration};
 
 use rodio::nz;
 
 use crate::mpd_protocol::{
-    AudioParams, IdInPlaylist, PlaylistEntry, PlaylistId, PlaylistInfo, PosInPlaylist, SongId,
-    SongNumber, PlaybackState, Status, Volume, response_format,
+    AudioParams, PlaybackState, PlaylistEntry, PlaylistId, PlaylistInfo, PosInPlaylist, SongId,
+    SongNumber, Status, Volume, response_format,
 };
 
 #[test]
@@ -87,7 +84,7 @@ fn serialize_playlistinfo() {
                 artist: "Lukas Graham".to_string(),
                 duration: Duration::from_secs_f64(237.3),
                 pos: PosInPlaylist(0),
-                id: IdInPlaylist(294),
+                id: SongId(294),
             },
             PlaylistEntry {
                 file: Path::new("Taylor Swift/1989/01 Welcome To New York.mp3").into(),
@@ -109,7 +106,7 @@ fn serialize_playlistinfo() {
                 label: "Taylor Swift".to_string(),
                 duration: Duration::from_secs_f64(212.6),
                 pos: PosInPlaylist(1),
-                id: IdInPlaylist(295),
+                id: SongId(295),
             },
             PlaylistEntry {
                 file: Path::new("Chappell Roan/EPs/Chappell Roan - School Nights (2017) [24B-44.1kHz]/03. Meantime.flac").into(),
@@ -131,7 +128,7 @@ fn serialize_playlistinfo() {
                 disc: None,
                 duration: Duration::from_secs_f64(183.448),
                 pos: PosInPlaylist(2),
-                id: IdInPlaylist(296),
+                id: SongId(296),
 
             }
         ]))

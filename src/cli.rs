@@ -27,9 +27,13 @@ pub(crate) enum Commands {
         address: String,
     },
     Run(RunArgs),
+    /// Look at the metadata of all the files in the folder and build
+    /// and index.
+    Scan(RunArgs),
 }
 
 #[derive(clap::Parser)]
 pub struct RunArgs {
     pub(crate) playlist_dir: PathBuf,
+    pub(crate) music_dir: PathBuf,
 }

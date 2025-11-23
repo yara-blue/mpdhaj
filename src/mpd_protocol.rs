@@ -1,12 +1,9 @@
 pub mod command_format;
 pub mod response_format;
 
-use std::{
-    path::PathBuf,
-    time::{Duration, SystemTime},
-};
+use std::{path::PathBuf, time::Duration};
 
-use color_eyre::eyre::Context;
+use color_eyre::{Section, eyre::Context};
 use jiff::Timestamp;
 use rodio::{ChannelCount, SampleRate, nz};
 use serde::{Deserialize, Serialize};
@@ -71,12 +68,35 @@ pub enum Command {
     Volume(VolumeChange),
     /// Unpause
     Play,
+    /// Add an item to the queue
+    Add(PathBuf),
+    List(List),
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct List {
+    // NOTE we can not parse mpd filters yet
+    pub tag_to_list: Tag,
+    pub group_by: Vec<Tag>,
+}
+
+#[derive(
+    Debug, Default, Deserialize, Serialize, strum_macros::Display, PartialEq, Eq,
+)]
+// #[serde(rename_all = "lowercase")]
+pub enum Tag {
+    #[default]
+    Album,
+    AlbumArtist,
+    Artist,
 }
 
 impl Command {
-    #[instrument(level="debug", ret)]
+    #[instrument(level = "debug", ret)]
     pub(crate) fn parse(line: &str) -> color_eyre::Result<Self> {
-        command_format::from_str(line).wrap_err("Could not deserialize line")
+        command_format::from_str(line)
+            .wrap_err("Could not deserialize line")
+            .with_note(|| format!("line was: {line}"))
     }
 }
 
@@ -189,9 +209,9 @@ impl PlaylistEntry {
                 bits: 16,
                 channels: nz!(42),
             },
-            artist: "todo".to_string(),
+            artist: song.artist,
             album_artist: "todo".to_string(),
-            title: "todo".to_string(),
+            title: song.title,
             album: "todo".to_string(),
             track: 42,
             date: "todo".to_string(),

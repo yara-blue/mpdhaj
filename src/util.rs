@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{fmt::Display, marker::PhantomData};
 
 pub trait WhatItertoolsIsMissing {
     /// Return an iterator which gives the current iteration count as well as
@@ -53,5 +53,18 @@ where
             Some(Err(e)) => Some(Err(e)),
             None => None,
         }
+    }
+}
+
+pub trait LogError {
+    fn log_error(self) -> Self;
+}
+
+impl<T, E: Display> LogError for Result<T, E> {
+    fn log_error(self) -> Self {
+        if let Err(ref e) = self {
+            tracing::error!("Error parsing metadata: {e}");
+        }
+        self
     }
 }

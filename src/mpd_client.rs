@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use color_eyre::Section;
+use color_eyre::eyre::eyre;
 use color_eyre::{Result, eyre::Context};
 use futures::FutureExt;
 use itertools::Itertools;
@@ -9,7 +10,7 @@ use tokio::net::TcpListener;
 use tokio::task;
 use tracing::{debug, info, warn};
 
-use crate::mpd_protocol::{self, SubSystem, response_format};
+use crate::mpd_protocol::{self, List, SubSystem, response_format};
 use crate::{mpd_protocol::Command, system::System};
 
 pub(crate) async fn handle_clients(system: Arc<std::sync::Mutex<System>>) -> Result<()> {
@@ -52,7 +53,6 @@ async fn handle_client(
     {
         let command = Command::parse(&line)?;
         let command = if let Command::Idle(sub_systems) = command {
-            acknowledge(&mut writer).await?;
             let Some(command_after_idle) =
                 handle_idle(&mut reader, &mut writer, &system, sub_systems).await?
             else {
@@ -138,7 +138,7 @@ async fn acknowledge(writer: &mut (impl AsyncWrite + 'static + Unpin)) -> Result
 
 pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::Result<String> {
     use Command as C;
-    let system = system.lock().expect("No thread should ever panick");
+    let mut system = system.lock().expect("No thread should ever panick");
     Ok(match request {
         C::BinaryLimit(_) => String::new(),
         C::Commands => supported_command_list(),
@@ -156,12 +156,37 @@ pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::
                 .wrap_err("Failed to get playlist")
                 .with_note(|| format!("playlist name: {playlist_name:?}"))?,
         )?,
-        C::PlayId(pos_in_playlist) => todo!(),
+        C::PlayId(_pos_in_playlist) => todo!(),
         C::Clear => todo!(),
-        C::Load(playlist_name) => todo!(),
-        C::LsInfo(path_buf) => todo!(),
-        C::Volume(volume_change) => todo!(),
+        C::Load(_playlist_name) => todo!(),
+        C::List(List {
+            tag_to_list,
+            group_by,
+        }) => {
+            if !group_by.is_empty() {
+                return Err(eyre!("group_by argument in List command not yet supported"));
+            }
+
+            system
+                .list_tags(&tag_to_list)
+                .wrap_err("Failed to list tags")
+                .with_note(|| format!("Tag type: {tag_to_list}"))?
+        }
+        C::LsInfo(song) => response_format::to_string(
+            &system
+                .song_info_from_path(&song)
+                .wrap_err("Failed to get song info")
+                .with_note(|| format!("song path: {song:?}"))?,
+        )?,
+        C::Volume(_volume_change) => todo!(),
         C::Play => todo!(),
+        C::Add(song) => {
+            system
+                .add_to_queue(&song)
+                .wrap_err("Failed to add song to queue")
+                .with_note(|| format!("song path: {song:?}"))?;
+            String::new()
+        }
         C::Idle(_) | Command::NoIdle => panic!("These should be handled in the outer loop"),
     })
 }

@@ -1,4 +1,4 @@
-use crate::mpd_protocol::{Command, PlaylistName, SubSystem};
+use crate::mpd_protocol::{Command, List, PlaylistName, SubSystem};
 
 #[test]
 fn parse_commands() {
@@ -30,5 +30,16 @@ fn parse_list_playlist_info() {
     assert_eq!(
         Command::parse(r#"listplaylistinfo "foo\"bar""#).unwrap(),
         Command::ListPlaylistInfo(PlaylistName("foo\"bar".to_string()))
+    );
+}
+
+#[test]
+fn parse_list_with_group() {
+    assert_eq!(
+        Command::parse("list Album group AlbumArtist").unwrap(),
+        Command::List(List {
+            tag_to_list: crate::mpd_protocol::Tag::Album,
+            group_by: vec![crate::mpd_protocol::Tag::AlbumArtist],
+        })
     );
 }

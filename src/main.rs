@@ -13,7 +13,9 @@ mod mpd_client;
 mod mpd_protocol;
 mod playlist;
 mod proxy;
+mod scan;
 mod system;
+
 /// pub so doctests work
 pub mod util;
 
@@ -28,9 +30,15 @@ async fn main() -> Result<()> {
         Commands::Proxy { address } => proxy::handle_clients(options.port, &address).await?,
         Commands::Run(args) => {
             let system = Arc::new(Mutex::new(
-                System::new(&args.playlist_dir).wrap_err("Could not start system")?,
+                System::new(&args.playlist_dir, args.music_dir)
+                    .wrap_err("Could not start system")?,
             ));
             mpd_client::handle_clients(system).await?;
+        }
+        Commands::Scan(args) => {
+            let mut system = System::new(&args.playlist_dir, args.music_dir)
+                .wrap_err("Could not start system")?;
+            system.scan().await?;
         }
     };
 

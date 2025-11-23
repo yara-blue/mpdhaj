@@ -234,7 +234,7 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     // means that the corresponding `Deserialize implementation will know the
     // length without needing to look at the serialized data.
     fn serialize_tuple(self, _len: usize) -> Result<Self::SerializeTuple> {
-        unimplemented!();
+        Ok(self)
     }
 
     // Tuple structs look just like sequences in JSON.
@@ -312,6 +312,9 @@ impl<'a> ser::SerializeSeq for &'a mut Serializer {
     }
 }
 
+struct TupleSerializer {
+}
+
 // Same thing but for tuples.
 impl<'a> ser::SerializeTuple for &'a mut Serializer {
     type Ok = ();
@@ -321,14 +324,12 @@ impl<'a> ser::SerializeTuple for &'a mut Serializer {
     where
         T: ?Sized + Serialize,
     {
-        if !self.output.ends_with('[') {
-            self.output += ",";
-        }
-        value.serialize(&mut **self)
+        self.output += ":";
+        value.serialize(&mut **self)?;
+        Ok(())
     }
 
     fn end(self) -> Result<()> {
-        self.output += "]";
         Ok(())
     }
 }
