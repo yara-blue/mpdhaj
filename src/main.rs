@@ -19,6 +19,7 @@ mod system;
 /// pub so doctests work
 pub mod util;
 
+#[allow(unexpected_cfgs)]
 #[tokio::main(flavor = "local")]
 async fn main() -> Result<()> {
     color_eyre::install().unwrap();
