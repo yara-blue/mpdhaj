@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use color_eyre::Section;
-use color_eyre::eyre::eyre;
+use color_eyre::eyre::{OptionExt, eyre};
 use color_eyre::{Result, eyre::Context};
 use futures::FutureExt;
 use itertools::Itertools;
@@ -51,6 +51,14 @@ async fn handle_client(
         .await
         .wrap_err("Could not get next line from client")?
     {
+        if line == "command_list_ok_begin" {
+            handle_command_list(&mut reader, &mut writer, &system, true).await?;
+            continue;
+        } else if line == "command_list_begin" {
+            handle_command_list(&mut reader, &mut writer, &system, false).await?;
+            continue;
+        }
+
         let command = Command::parse(&line)?;
         let command = if let Command::Idle(sub_systems) = command {
             let Some(command_after_idle) =
@@ -72,6 +80,44 @@ async fn handle_client(
             .wrap_err("Failed to write response to client")?;
     }
     Ok(())
+}
+
+async fn handle_command_list(
+    reader: &mut tokio::io::Lines<impl AsyncBufRead + Unpin>,
+    writer: &mut (impl AsyncWrite + 'static + Unpin),
+    system: &Arc<Mutex<System>>,
+    ack_each_command: bool,
+) -> Result<()> {
+    debug!("handling command list");
+    let mut command_executed = 0;
+    loop {
+        let line = reader
+            .next_line()
+            .await
+            .wrap_err("Could not get next line from client")?
+            .ok_or_eyre("Connection closed before command list ended")?;
+        if line == "command_list_end" {
+            if ack_each_command {
+                for _ in 0..command_executed {
+                    acknowledge_cmd_list_entry(writer).await?;
+                }
+            }
+            return acknowledge(writer).await;
+        }
+
+        let command = Command::parse(&line)?;
+        if matches!(command, Command::Idle(_) | Command::NoIdle) {
+            return Err(eyre!("Idle and NoIde are not allowed in command lists"));
+        }
+        let response = perform_command(command, &system)?;
+        command_executed += 1;
+
+        debug!("reply: {response}");
+        writer
+            .write_all(response.as_bytes())
+            .await
+            .wrap_err("Failed to write response to client")?;
+    }
 }
 
 #[tracing::instrument(skip_all, fields(sub_systems))]
@@ -133,7 +179,16 @@ async fn acknowledge(writer: &mut (impl AsyncWrite + 'static + Unpin)) -> Result
     writer
         .write_all(b"OK\n")
         .await
-        .wrap_err("Failed to acknowledge client")
+        .wrap_err("Failed to acknowledge cmd client")
+}
+
+async fn acknowledge_cmd_list_entry(
+    writer: &mut (impl AsyncWrite + 'static + Unpin),
+) -> Result<()> {
+    writer
+        .write_all(b"list_OK\n")
+        .await
+        .wrap_err("Failed to acknowledge cmd list item to client")
 }
 
 pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::Result<String> {
