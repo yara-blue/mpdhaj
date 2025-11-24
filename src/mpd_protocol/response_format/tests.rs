@@ -3,8 +3,8 @@ use std::{path::Path, time::Duration};
 use rodio::nz;
 
 use crate::mpd_protocol::{
-    AudioParams, PlaybackState, PlaylistEntry, PlaylistId, PlaylistInfo, PosInPlaylist, SongId,
-    SongNumber, Status, Volume, response_format,
+    AudioParams, ListItem, PlaybackState, PlaylistEntry, PlaylistId, PlaylistInfo, PosInPlaylist,
+    SongId, SongNumber, Status, Volume, response_format,
 };
 
 #[test]
@@ -32,7 +32,7 @@ fn serialize_status() {
                 bits: 24,
                 channels: nz!(2)
             },
-            error: "Failed to open \"usb dac attached to pi\" (alsa); Failed to open ALSA device \"hw:CARD=UD110v2,DEV=1\": No such device".to_string(),
+            error: Some("Failed to open \"usb dac attached to pi\" (alsa); Failed to open ALSA device \"hw:CARD=UD110v2,DEV=1\": No such device".to_string()),
             nextsong: SongNumber(1),
             nextsongid: SongId(1),
         })
@@ -180,4 +180,17 @@ Pos: 2
 Id: 296
 "
     );
+}
+
+#[test]
+fn listall() {
+    pretty_assertions::assert_eq!(
+        response_format::to_string(&vec![
+            ListItem::Directory("test/directory with spaces/subdir".into()),
+            ListItem::File("test_file".into())
+        ])
+        .unwrap(),
+        "directory: test/directory with spaces/subdir\n\
+        file: test_file\n",
+    )
 }

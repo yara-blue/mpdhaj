@@ -1,18 +1,18 @@
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use strum::IntoEnumIterator;
 use tokio::sync::mpsc;
 
-use color_eyre::eyre::{Context, OptionExt, eyre};
+use color_eyre::eyre::{Context, OptionExt};
 use color_eyre::{Report, Result, Section};
 use rodio::nz;
 
 use crate::mpd_protocol::query::Query;
 use crate::mpd_protocol::{
-    self, AudioParams, FindResult, PlayList, PlaybackState, PlaylistEntry, PlaylistId,
+    self, AudioParams, FindResult, ListItem, PlayList, PlaybackState, PlaylistEntry, PlaylistId,
     PlaylistInfo, SongId, SongNumber, SubSystem, Tag, Volume,
 };
 use crate::playlist::{self, PlaylistName};
@@ -87,7 +87,7 @@ impl System {
                     file: metadata.file,
                     title: metadata.title,
                     artist: metadata.artist,
-                    album: metadata.album
+                    album: metadata.album,
                 })
                 .unwrap();
         })
@@ -117,9 +117,9 @@ impl System {
             audio: AudioParams {
                 samplerate: nz!(44100),
                 bits: 24,
-                channels: nz!(2)
+                channels: nz!(2),
             },
-            error: "Failed to open \"usb dac attached to pi\" (alsa); Failed to open ALSA device \"hw:CARD=UD110v2,DEV=1\": No such device".to_string(),
+            error: None,
             nextsong: SongNumber(1),
             nextsongid: SongId(1),
         }
@@ -244,6 +244,24 @@ impl System {
             .wrap_err("Could not append song_id to queue")
     }
 
+    pub fn list_all_in(&self, dir: PathBuf) -> Result<Vec<ListItem>> {
+        let mut paths = HashSet::new();
+        for path in self
+            .db
+            .library()
+            .iter()
+            .map_ok(|song| song.file)
+            .filter_ok(|path| path.starts_with(&dir))
+        {
+            let path = path.wrap_err("Error reading all library items from db")?;
+            // annoyingly mpd's list all includes dirs... we dont store those
+            // so create theme from the file paths here.
+            paths.extend(path.parent().map(Path::to_owned).map(ListItem::Directory));
+            paths.insert(ListItem::File(path));
+        }
+        Ok(paths.into_iter().collect_vec())
+    }
+
     pub fn list_tags(&self, tag_to_list: &Tag) -> Result<String> {
         let mut list = self
             .db
@@ -265,6 +283,25 @@ impl System {
 
     pub fn handle_find(&self, query: &Query) -> Result<Vec<FindResult>> {
         query::handle_find(self, query)
+    }
+
+    pub fn current_song(&self) -> Result<Option<PlaylistEntry>> {
+        let Some(song_id) = self
+            .db
+            .queue()
+            .get(0)
+            .wrap_err("Could not get to item in queue")?
+        else {
+            return Ok(None);
+        };
+
+        let song = self
+            .db
+            .library()
+            .get(song_id.0 as usize)
+            .wrap_err("Could not get current song from library")?
+            .ok_or_eyre("Item in the queue was not in the library")?;
+        Ok(Some(PlaylistEntry::mostly_fake(0, song_id, song)))
     }
 }
 

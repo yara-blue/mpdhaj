@@ -214,6 +214,11 @@ pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::
         C::PlayId(_pos_in_playlist) => todo!(),
         C::Clear => todo!(),
         C::Load(_playlist_name) => todo!(),
+        C::ListAll(dir) => response_format::to_string(
+            &system
+                .list_all_in(dir)
+                .wrap_err("Failed to list all songs")?,
+        )?,
         C::List(List {
             tag_to_list,
             group_by,
@@ -261,6 +266,11 @@ pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::
             }
             String::new()
         }
+        C::CurrentSong => response_format::to_string(
+            &system
+                .current_song()
+                .wrap_err("Could not get current song")?,
+        )?,
         C::Idle(_) | C::NoIdle => panic!("These should be handled in the outer loop"),
     })
 }

@@ -72,8 +72,11 @@ pub enum Command {
     /// Add an item to the queue
     Add(PathBuf),
     List(List),
+    /// List everything in this dir
+    ListAll(PathBuf),
     Find(Query),
     FindAdd(Query),
+    CurrentSong,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -200,6 +203,13 @@ pub struct PlaylistEntry {
     id: SongId,
 }
 
+#[derive(Serialize, Debug, Hash, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ListItem {
+    Directory(PathBuf),
+    File(PathBuf),
+}
+
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "PascalCase")]
 pub struct FindResult {
@@ -277,7 +287,7 @@ pub struct Status {
     pub duration: Duration,
     #[serde(serialize_with = "response_format::audio_params")]
     pub audio: AudioParams,
-    pub error: String,
+    pub error: Option<String>,
     pub nextsong: SongNumber,
     pub nextsongid: SongId,
 }

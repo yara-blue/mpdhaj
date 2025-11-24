@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::mpd_protocol::{
     Command, List, PlaylistName, SubSystem,

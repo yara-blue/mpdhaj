@@ -207,11 +207,10 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     where
         T: ?Sized + Serialize,
     {
-        self.output += "{";
         variant.serialize(&mut *self)?;
-        self.output += ":";
+        self.output += ": ";
         value.serialize(&mut *self)?;
-        self.output += "}";
+        self.output += "\n";
         Ok(())
     }
 
