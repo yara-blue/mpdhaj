@@ -34,6 +34,6 @@ pub(crate) enum Commands {
 
 #[derive(clap::Parser)]
 pub struct RunArgs {
-    pub(crate) playlist_dir: PathBuf,
     pub(crate) music_dir: PathBuf,
+    pub(crate) playlist_dir: Option<PathBuf>,
 }
