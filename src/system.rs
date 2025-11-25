@@ -1,14 +1,14 @@
+use color_eyre::eyre::{Context, OptionExt};
+use color_eyre::{Report, Result, Section};
+use etcetera::BaseStrategy;
 use itertools::Itertools;
+use rodio::nz;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use strum::IntoEnumIterator;
 use tokio::sync::mpsc;
-
-use color_eyre::eyre::{Context, OptionExt};
-use color_eyre::{Report, Result, Section};
-use rodio::nz;
 
 use crate::mpd_protocol::query::Query;
 use crate::mpd_protocol::{
@@ -47,16 +47,24 @@ pub struct System {
 }
 
 impl System {
-    pub fn new(playlist_dir: &Path, music_dir: PathBuf) -> Result<Self> {
-        let state = State::open_path("mpdhaj_database")
+    pub fn new(music_dir: PathBuf, playlist_dir: Option<PathBuf>) -> Result<Self> {
+        let dirs = etcetera::choose_base_strategy()?;
+        let cache = dirs.cache_dir().join("mpdhaj").join("database");
+        let state = State::open_path(&cache)
             .wrap_err("Could not open db")
             .note("path: mpdhaj_database")
             .suggestion(
                 "The database format probably changed, \
                 try removing the database folder",
             )?;
-        let playlists =
-            playlist::load_from_dir(playlist_dir).wrap_err("Failed to load playlists")?;
+        let playlist_dir = playlist_dir.unwrap_or_else(|| music_dir.join("playlists"));
+        let playlists = match playlist::load_from_dir(&playlist_dir) {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!("Playlists failed to load: {e:#}. Using an empty list...");
+                Default::default()
+            }
+        };
         Ok(System {
             db: state,
             playlists,
