@@ -1,8 +1,8 @@
 {
   inputs = {
-    rust-overlay.url = "github:oxalica/rust-overlay";
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     utils.url = "github:numtide/flake-utils";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    rust-overlay.url = "github:oxalica/rust-overlay";
   };
   outputs =
     inputs: inputs.utils.lib.eachDefaultSystem (
@@ -12,17 +12,19 @@
       in {
         devShell = pkgs.mkShell {
           nativeBuildInputs = with pkgs; [
-            pkg-config
             rust
+          ] ++ lib.optionals pkgs.stdenv.isLinux [
+            pkg-config
           ];
 
-          buildInputs = with pkgs; [
+          buildInputs = with pkgs; [] ++ lib.optionals pkgs.stdenv.isLinux [
             alsa-lib
           ];
 
           packages = with pkgs; [
             rmpc
             mpc
+            mpd
           ];
         };
       }
