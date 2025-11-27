@@ -280,10 +280,11 @@ impl System {
                 Tag::AlbumArtist => "todo".to_string(),
                 Tag::Artist => song.artist,
             })
-            .map_ok(|tag_value| format!("{tag_to_list}: {tag_value}"))
-            .collect::<Result<Vec<_>, _>>()
+            .collect::<Result<HashSet<_>, _>>()
             .wrap_err("Database error while iterating over library")?
             .into_iter()
+            .sorted_unstable()
+            .map(|tag_value| format!("{tag_to_list}: {tag_value}"))
             .join("\n");
         list.push('\n');
         Ok(list)
