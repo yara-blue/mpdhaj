@@ -1,9 +1,8 @@
-use std::path::PathBuf;
-
-use moosicbox_audiotags::{Error, Tag};
-
 use crate::scan::{FormatScanner, MetaData, UNKNOWN};
+
+use camino::Utf8PathBuf;
 use color_eyre::{Result, Section, eyre::Context};
+use moosicbox_audiotags::{Error, Tag};
 
 pub struct Scanner;
 
@@ -14,7 +13,7 @@ impl Scanner {
 }
 
 impl FormatScanner for Scanner {
-    fn scan(&self, path: PathBuf) -> Result<Option<MetaData>> {
+    fn scan(&self, path: Utf8PathBuf) -> Result<Option<MetaData>> {
         let tag = match Tag::new().read_from_path(&path) {
             Ok(tag) => tag,
             Err(
@@ -25,7 +24,7 @@ impl FormatScanner for Scanner {
             Err(other) => {
                 return Err(other)
                     .wrap_err("Could not parse metadata")
-                    .with_note(|| format!("path: {}", path.display()));
+                    .with_note(|| format!("path: {path}"));
             }
         };
 

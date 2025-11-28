@@ -1,11 +1,13 @@
+use camino::Utf8PathBuf;
 use color_eyre::eyre::{Context, OptionExt};
 use color_eyre::{Report, Result, Section};
 use etcetera::BaseStrategy;
 use itertools::Itertools;
+// use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use rodio::nz;
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
 use std::time::Duration;
 use strum::IntoEnumIterator;
 use tokio::sync::mpsc;
@@ -21,42 +23,48 @@ use crate::util::WhatItertoolsIsMissing;
 
 mod query;
 
-// If this ever gets too slow we can see what we need to cache
-#[dbstruct::dbstruct(db=sled)]
-pub struct State {
-    #[dbstruct(Default = "PlaybackState::Stop")]
-    playing: PlaybackState,
-    queue: Vec<SongId>,
-
-    /// All songs currently 'scanned'. Scanning MUST occur before anything
-    /// else atm. The `SongId` is the index in this vector.
-    ///
-    /// TODO: make it so scanning happens non stop in the background
-    /// (using io-notify and friends).
-    library: Vec<Song>,
-
-    // just rebuild this on rescan
-    song_id_from_path: HashMap<PathBuf, SongId>,
-}
-
+// TODO: scan in the background/on restart
 pub struct System {
-    db: State,
-    playlists: HashMap<PlaylistName, Vec<PathBuf>>,
+    db: Connection,
+    playing: PlaybackState,
+    // queue: VecList<SongId>,
+    // library: HashSet<Song>,
+    // song_id_from_path: HashMap<Utf8PathBuf, SongId>,
+    playlists: HashMap<PlaylistName, Vec<Utf8PathBuf>>,
     idlers: HashMap<SubSystem, Vec<mpsc::Sender<SubSystem>>>,
-    music_dir: PathBuf,
+    music_dir: Utf8PathBuf,
 }
 
 impl System {
-    pub fn new(music_dir: PathBuf, playlist_dir: Option<PathBuf>) -> Result<Self> {
+    pub fn new(music_dir: Utf8PathBuf, playlist_dir: Option<Utf8PathBuf>) -> Result<Self> {
         let dirs = etcetera::choose_base_strategy()?;
-        let cache = dirs.cache_dir().join("mpdhaj").join("database");
-        let state = State::open_path(&cache)
-            .wrap_err("Could not open db")
-            .note("path: mpdhaj_database")
-            .suggestion(
-                "The database format probably changed, \
-                try removing the database folder",
-            )?;
+        let cache = dirs.cache_dir().join("mpdhaj").join("database.sqlite");
+        let db = Connection::open(cache)?;
+        db.execute_batch(
+            "BEGIN
+            CREATE TABLE songs (
+                id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                path    TEXT NOT NULL,
+                hash    BLOB,
+                title   TEXT,
+                artist  TEXT,
+                album   TEXT,
+                -- TODO: tags
+            )
+            CREATE TABLE queue_state (
+                index   INTEGER
+                first   INTEGER
+                last    INTEGER
+            )
+            CREATE TABLE queue (
+                index   INTEGER PRIMARY KEY,
+                next    INTEGER
+                prev    INTEGER
+                id      INTEGER
+            )
+            -- TODO: persist mpd status like repeat/random/single/consume
+            COMMIT",
+        )?;
         let playlist_dir = playlist_dir.unwrap_or_else(|| music_dir.join("playlists"));
         let playlists = match playlist::load_from_dir(&playlist_dir) {
             Ok(p) => p,
@@ -66,18 +74,24 @@ impl System {
             }
         };
         Ok(System {
-            db: state,
-            playlists,
-            idlers: Default::default(),
+            db,
             music_dir,
+            playlists,
+            playing: Default::default(),
+            idlers: Default::default(),
         })
     }
 
-    pub async fn scan(&mut self) -> Result<()> {
-        // Song ids will change, reset db
-        self.db.queue().clear().unwrap();
-        self.db.song_id_from_path().clear().unwrap();
-
+    pub async fn rescan(&mut self) -> Result<()> {
+        // TODO: disable watcher while rescanning, then reenable
+        for e in walkdir::WalkDir::new(self.music_dir).follow_links(true) {
+            if let Ok(e) = e
+                && let Ok(m) = e.metadata()
+                && !m.is_dir()
+            {
+                let hash =
+            }
+        }
         scan::scan_dir(&self.music_dir, |mut metadata: MetaData| {
             metadata.file = metadata
                 .file
@@ -184,7 +198,7 @@ impl System {
                     .get(path)
                     .wrap_err("Could not read song_id lookup table")
                     .and_then(|song_id| song_id.ok_or_eyre("Path is not in song_id lookup table"))
-                    .with_note(|| format!("path: {}", path.display()))
+                    .with_note(|| format!("path: {path}"))
             })
             .collect::<Result<_, _>>()?;
 
@@ -214,7 +228,7 @@ impl System {
             .get(path)
             .wrap_err("Could not read song_id lookup table")
             .and_then(|song_id| song_id.ok_or_eyre("Path is not in song_id lookup table"))
-            .with_note(|| format!("path: {}", path.display()))?;
+            .with_note(|| format!("path: {path}"))?;
         self.db
             .library()
             .get(song_id.0 as usize)
@@ -245,14 +259,14 @@ impl System {
             .get(path)
             .wrap_err("Could not read song_id lookup table")
             .and_then(|song_id| song_id.ok_or_eyre("Path is not in song_id lookup table"))
-            .with_note(|| format!("path: {}", path.display()))?;
+            .with_note(|| format!("path: {path}"))?;
         self.db
             .queue()
             .push(&song_id)
             .wrap_err("Could not append song_id to queue")
     }
 
-    pub fn list_all_in(&self, dir: PathBuf) -> Result<Vec<ListItem>> {
+    pub fn list_all_in(&self, dir: Utf8PathBuf) -> Result<Vec<ListItem>> {
         let mut paths = HashSet::new();
         for path in self
             .db
@@ -314,9 +328,10 @@ impl System {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Hash)]
+// #[derive(Archive, RkyvDeserialize, RkyvSerialize)]
 pub struct Song {
-    pub file: PathBuf,
+    pub file: Utf8PathBuf,
     pub title: String,
     pub artist: String,
     pub album: String,

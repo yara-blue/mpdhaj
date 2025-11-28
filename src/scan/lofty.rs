@@ -1,6 +1,5 @@
-use std::path::PathBuf;
-
 use crate::scan::{FormatScanner, MetaData, UNKNOWN};
+use camino::Utf8PathBuf;
 use color_eyre::{Result, Section, eyre::Context};
 use lofty::{file::TaggedFileExt, probe::read_from_path, tag::Accessor};
 
@@ -13,10 +12,10 @@ impl Scanner {
 }
 
 impl FormatScanner for Scanner {
-    fn scan(&self, path: PathBuf) -> Result<Option<MetaData>> {
+    fn scan(&self, path: Utf8PathBuf) -> Result<Option<MetaData>> {
         let tagged_file = read_from_path(&path)
             .wrap_err("Could not open file for reading metadata")
-            .with_note(|| format!("path is: {}", path.display()))?;
+            .with_note(|| format!("path is: {path}"))?;
 
         let Some(tag) = tagged_file.primary_tag() else {
             return Ok(None);

@@ -2,10 +2,12 @@ pub mod command_format;
 pub mod query;
 pub mod response_format;
 
-use std::{path::PathBuf, time::Duration};
+use std::time::Duration;
 
+use camino::Utf8PathBuf;
 use color_eyre::{Section, eyre::Context};
 use jiff::Timestamp;
+// use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use rodio::{ChannelCount, SampleRate, nz};
 use serde::{Deserialize, Serialize};
 use strum::EnumString;
@@ -16,7 +18,6 @@ use crate::{mpd_protocol::query::Query, playlist::PlaylistName};
 pub const VERSION: &'static str = "0.24.4";
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Hash, strum::EnumIter)]
-#[serde(rename_all = "snake_case")]
 pub enum SubSystem {
     /// the song database has been modified after update.
     Database,
@@ -65,15 +66,15 @@ pub enum Command {
     Clear,
     Load(PlaylistName),
     /// Mpd supports URI's here we only play files though so we use a path.
-    LsInfo(PathBuf),
+    LsInfo(Utf8PathBuf),
     Volume(VolumeChange),
     /// Unpause
     Play,
     /// Add an item to the queue
-    Add(PathBuf),
+    Add(Utf8PathBuf),
     List(List),
     /// List everything in this dir
-    ListAll(PathBuf),
+    ListAll(Utf8PathBuf),
     Find(Query),
     FindAdd(Query),
     CurrentSong,
@@ -153,11 +154,12 @@ pub struct SongNumber(pub u32);
 #[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PosInPlaylist(u32);
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
+// #[derive(rkyv::Archive, RkyvDeserialize, RkyvSerialize)]
 pub enum PlaybackState {
     Play,
     Pause,
+    #[default]
     Stop,
 }
 
@@ -176,7 +178,7 @@ pub struct PlaylistInfo(pub Vec<PlaylistEntry>);
 #[serde(rename_all = "PascalCase")]
 pub struct PlaylistEntry {
     #[serde(rename = "file")]
-    file: PathBuf,
+    file: Utf8PathBuf,
     #[serde(rename = "Last-Modified")]
     last_modified: jiff::Timestamp, // as 2025-06-15T22:06:58Z
     added: jiff::Timestamp, // as 2025-06-15T22:06:58Z
@@ -206,15 +208,15 @@ pub struct PlaylistEntry {
 #[derive(Serialize, Debug, Hash, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ListItem {
-    Directory(PathBuf),
-    File(PathBuf),
+    Directory(Utf8PathBuf),
+    File(Utf8PathBuf),
 }
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "PascalCase")]
 pub struct FindResult {
     #[serde(rename = "file")]
-    pub file: PathBuf,
+    pub file: Utf8PathBuf,
     #[serde(rename = "Last-Modified")]
     pub last_modified: jiff::Timestamp,
     pub added: jiff::Timestamp,
