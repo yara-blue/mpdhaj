@@ -1,11 +1,16 @@
+use std::path::Path;
+
+use camino::{Utf8Path, Utf8PathBuf};
 use futures::FutureExt;
-use std::path::{Path, PathBuf};
 use tokio::{
     fs::{self},
     task::spawn_blocking,
 };
 
-use color_eyre::{Result, Section, eyre::Context};
+use color_eyre::{
+    Result, Section,
+    eyre::{Context, ContextCompat},
+};
 
 use crate::util::LogError;
 
@@ -17,18 +22,20 @@ pub struct MetaData {
     pub title: String,
     pub artist: String,
     pub album: String,
-    pub file: PathBuf,
+    // TODO: add other tags, genre/release date/etc.
+    pub file: Utf8PathBuf,
 }
 
 pub const UNKNOWN: &str = "unknown";
 trait FormatScanner: Send + Sync {
-    fn scan(&self, path: PathBuf) -> Result<Option<MetaData>>;
+    fn scan(&self, path: Utf8PathBuf) -> Result<Option<MetaData>>;
 }
 
 const SCANNERS: &[&dyn FormatScanner] =
     &[&lofty::Scanner::new(), &moosicbox_audiotags::Scanner::new()];
 
-pub async fn scan_path(path: PathBuf) -> Option<MetaData> {
+pub async fn scan_path(path: &Utf8Path) -> Option<MetaData> {
+    let path = path.to_path_buf();
     spawn_blocking(move || {
         SCANNERS
             .iter()
@@ -39,8 +46,9 @@ pub async fn scan_path(path: PathBuf) -> Option<MetaData> {
     .expect("Scanning should never panic")
 }
 
-pub async fn scan_dir(music_dir: &Path, add_to_db: impl Fn(MetaData)) -> Result<()> {
-    scan_dir_recurse(music_dir, &add_to_db).await?;
+// TODO: maybe just use walkdir if we need more features like traversing symlinks
+pub async fn scan_dir(music_dir: &Utf8PathBuf, add_to_db: impl Fn(MetaData)) -> Result<()> {
+    scan_dir_recurse(music_dir.as_std_path(), &add_to_db).await?;
     Ok(())
 }
 
@@ -60,7 +68,9 @@ pub async fn scan_dir_recurse(music_dir: &Path, add_to_db: &impl Fn(MetaData)) -
             }
             Ok(ty) if ty.is_file() => {
                 let path = entry.path();
-                if let Some(metadata) = scan_path(path).await {
+                if let Some(metadata) =
+                    scan_path(Utf8Path::from_path(&path).wrap_err("non-utf8 path")?).await
+                {
                     add_to_db(metadata)
                 }
                 Ok(())

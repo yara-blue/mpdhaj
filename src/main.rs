@@ -30,16 +30,18 @@ async fn main() -> Result<()> {
     match options.command {
         Commands::Proxy { address } => proxy::handle_clients(options.port, &address).await?,
         Commands::Run(args) => {
-            let system = Arc::new(Mutex::new(
-                System::new(args.music_dir, args.playlist_dir)
-                    .wrap_err("Could not start system")?,
-            ));
+            let system = Arc::new(Mutex::new({
+                let s = System::new(args.music_dir, args.playlist_dir)
+                    .wrap_err("Could not start system")?;
+                s.rescan().await?;
+                s
+            }));
             mpd_client::handle_clients(system).await?;
         }
         Commands::Scan(args) => {
             let mut system = System::new(args.music_dir, args.playlist_dir)
                 .wrap_err("Could not start system")?;
-            system.scan().await?;
+            system.rescan().await?;
         }
     };
 

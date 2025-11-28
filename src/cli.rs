@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use camino::Utf8PathBuf;
 
 #[derive(clap::Parser)]
 pub(crate) struct Cli {
@@ -34,6 +34,6 @@ pub(crate) enum Commands {
 
 #[derive(clap::Parser)]
 pub struct RunArgs {
-    pub(crate) music_dir: PathBuf,
-    pub(crate) playlist_dir: Option<PathBuf>,
+    pub(crate) music_dir: Utf8PathBuf,
+    pub(crate) playlist_dir: Option<Utf8PathBuf>,
 }
