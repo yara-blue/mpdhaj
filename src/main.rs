@@ -31,7 +31,7 @@ async fn main() -> Result<()> {
         Commands::Proxy { address } => proxy::handle_clients(options.port, &address).await?,
         Commands::Run(args) => {
             let system = Arc::new(Mutex::new({
-                let s = System::new(args.music_dir, args.playlist_dir)
+                let mut s = System::new(args.music_dir, args.playlist_dir)
                     .wrap_err("Could not start system")?;
                 s.rescan().await?;
                 s
