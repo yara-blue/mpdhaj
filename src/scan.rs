@@ -32,10 +32,7 @@ pub async fn scan_path(path: &Utf8Path) -> Option<Metadata> {
     spawn_blocking(move || {
         SCANNERS
             .iter()
-            .filter_map(move |scanner| {
-                // TODO: remove log_error, it fires on albumart files and such and spams the log
-                scanner.scan(path.clone()).log_error().ok().flatten()
-            })
+            .filter_map(move |scanner| scanner.scan(path.clone()).ok().flatten())
             .next()
     })
     .await

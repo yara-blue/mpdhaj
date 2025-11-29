@@ -278,6 +278,9 @@ impl System {
         else {
             return Ok(None);
         };
+        if index == 0 {
+            return Ok(None);
+        }
         let Ok(id) = self
             .db
             .query_one("SELECT id FROM queue WHERE slot = ?1", [index], |row| {

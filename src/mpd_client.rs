@@ -13,8 +13,8 @@ use tracing::{debug, info, warn};
 use crate::mpd_protocol::{self, PlaybackState, SubSystem, response_format};
 use crate::{mpd_protocol::Command, system::System};
 
-pub(crate) async fn handle_clients(system: Arc<std::sync::Mutex<System>>) -> Result<()> {
-    let listener = TcpListener::bind("0.0.0.0:6600").await?;
+pub(crate) async fn handle_clients(system: Arc<std::sync::Mutex<System>>, port: u16) -> Result<()> {
+    let listener = TcpListener::bind(format!("0.0.0.0:{port}")).await?;
 
     loop {
         let stream = match listener.accept().await {

@@ -37,7 +37,7 @@ async fn main() -> Result<()> {
                 s.rescan().await?;
                 s
             }));
-            mpd_client::handle_clients(system).await?;
+            mpd_client::handle_clients(system, options.port).await?;
         }
         Commands::Scan(args) => {
             let system = System::new(args.music_dir, args.playlist_dir)
