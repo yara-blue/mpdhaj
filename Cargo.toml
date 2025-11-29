@@ -7,7 +7,6 @@ edition = "2024"
 camino = { version = "1.2", features = ["serde1"] }
 clap = { version = "4.5.51", features = ["derive"] }
 color-eyre = "0.6.5"
-# dlv-list = "0.6"
 etcetera = "0.11"
 futures-concurrency = "7.6.3"
 itertools = "0.14.0"
@@ -15,12 +14,9 @@ jiff = { version = "0.2.16", features = ["serde"] }
 lofty = "0.22.4"
 moosicbox_audiotags = "0.1.0"
 pretty_assertions = "1.4.1"
-# rkyv = "0.8"
 rodio = { git = "https://www.github.com/RustAudio/rodio" }
 rusqlite = {version = "0.37", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
-# sled = "0.34"
-sha2 = "0.10"
 strum = { version = "0.27.2", features = ["derive"] }
 strum_macros = "0.27.2"
 tokio = { version = "1.48.0", features = ["rt", "fs", "macros", "net", "io-std", "io-util", "sync"] }

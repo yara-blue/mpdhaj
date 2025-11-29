@@ -1,15 +1,13 @@
 use camino::{Utf8Path, Utf8PathBuf};
-use color_eyre::eyre::{Context, OptionExt};
+use color_eyre::eyre::{Context, ContextCompat, OptionExt, eyre};
 use color_eyre::{Report, Result, Section};
 use etcetera::BaseStrategy;
 use itertools::Itertools;
 use jiff::Timestamp;
-// use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use rodio::nz;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
-use sha2::Digest;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::time::Duration;
 use strum::IntoEnumIterator;
 use tokio::sync::mpsc;
@@ -50,7 +48,8 @@ impl System {
                 mtime   TEXT NOT NULL, -- maybe use hash BLOB instead?
                 title   TEXT,
                 artist  TEXT,
-                album   TEXT -- TODO: tags
+                album   TEXT
+                -- TODO: tags/albumart/etc
             );
             CREATE TABLE IF NOT EXISTS queue_state (
                 current INTEGER,
@@ -58,10 +57,11 @@ impl System {
                 last    INTEGER
             );
             CREATE TABLE IF NOT EXISTS queue (
+                -- can't use id as primary key, need to support duplicates
                 slot    INTEGER PRIMARY KEY AUTOINCREMENT,
+                id      INTEGER,
                 next    INTEGER,
-                prev    INTEGER,
-                id      INTEGER
+                prev    INTEGER
             );
             -- TODO: persist mpd status like repeat/random/single/consume
             COMMIT;",
@@ -83,38 +83,68 @@ impl System {
         })
     }
 
+    async fn scan_song(
+        &self,
+        relpath: &Utf8Path,
+        abspath: &Utf8Path,
+        mtime: Timestamp,
+    ) -> Result<()> {
+        if let Ok((id, cached_mtime)) = self.db.query_one(
+            "SELECT id, mtime FROM songs WHERE path = ?1",
+            [relpath.as_str()],
+            |row| Ok((row.get::<_, u32>(0)?, row.get::<_, String>(1)?)),
+        ) {
+            if let Ok(cached_mtime) = cached_mtime.parse()
+                && mtime != cached_mtime
+                && let Some(song_metadata) = scan_path(abspath).await
+            {
+                self.db.execute(
+                    "UPDATE songs
+                    SET mtime = ?2, title = ?3, artist = ?4, album = ?5
+                    WHERE id = ?1
+                        ",
+                    (
+                        id,
+                        relpath.as_str(),
+                        mtime.to_string(),
+                        song_metadata.title,
+                        song_metadata.artist,
+                        song_metadata.album,
+                    ),
+                )?;
+            }
+        } else {
+            let Some(song_metadata) = scan_path(abspath).await else {
+                return Ok(());
+            };
+            self.db.execute(
+                "INSERT INTO songs (path, mtime, title, artist, album) VALUES (?1, ?2, ?3, ?4, ?5)",
+                (
+                    relpath.as_str(),
+                    mtime.to_string(),
+                    song_metadata.title,
+                    song_metadata.artist,
+                    song_metadata.album,
+                ),
+            )?;
+        }
+        Ok(())
+    }
+
     pub async fn rescan(&mut self) -> Result<()> {
         // TODO: maybe use async_walkdir instead? doesn't really matter if we only re-scan on startup
+        // TODO: handle song deletion between restarts, remove row if it's path doesn't show up
         let music_dir = &self.music_dir;
         for e in walkdir::WalkDir::new(music_dir) {
             if let Ok(e) = e
                 && let Ok(metadata) = e.metadata()
                 && !metadata.is_dir()
                 && let Ok(Ok(mtime)) = metadata.modified().map(|t| Timestamp::try_from(t))
-                && let Some(path) =
-                    Utf8Path::from_path(e.path()).map(|p| p.strip_prefix(music_dir).unwrap())
+                && let Some(abspath) = Utf8Path::from_path(e.path())
+                && let Ok(relpath) = abspath.strip_prefix(music_dir)
             {
-                // let hash = sha2::Sha256::digest(content).as_slice().to_vec();
-                if let Ok((id, cached_mtime)) = self.db.query_one(
-                    "SELECT id, mtime FROM songs WHERE path = ?1",
-                    [path.as_str()],
-                    |row| Ok((row.get::<_, u64>(0)?, row.get::<_, String>(1)?)),
-                ) {
-                    if let Ok(cached_mtime) = cached_mtime.parse()
-                        && mtime != cached_mtime
-                        && let Some(song_metadata) = scan_path(path).await
-                    {
-                        self.db.execute(
-                            "REPLACE INTO songs (id, path, mtime, title, artist, album) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                            (id, path.as_str(), &mtime.to_string(), song_metadata.title, song_metadata.artist, song_metadata.album),
-                        )?;
-                    }
-                }
-                else {
-
-                }
+                self.scan_song(relpath, abspath, mtime).await?;
             }
-            // TODO: if path is present and this has a newer mtime, update it
         }
         Ok(())
     }
@@ -316,30 +346,45 @@ impl System {
     }
 
     pub fn current_song(&self) -> Result<Option<PlaylistEntry>> {
-        // let Some(song_id) = self
-        //     .db
-        //     .queue()
-        //     .get(0)
-        //     .wrap_err("Could not get to item in queue")?
-        // else {
-        //     return Ok(None);
-        // };
-
-        // let song = self
-        //     .db
-        //     .library()
-        //     .get(song_id.0 as usize)
-        //     .wrap_err("Could not get current song from library")?
-        //     .ok_or_eyre("Item in the queue was not in the library")?;
-        // Ok(Some(PlaylistEntry::mostly_fake(0, song_id, song)))
-        todo!()
+        let Ok(index) = self
+            .db
+            .query_one("SELECT current FROM queue_state", [], |row| {
+                Ok(row.get::<_, u32>(0)?)
+            })
+        else {
+            return Ok(None);
+        };
+        let Ok(id) = self
+            .db
+            .query_one("SELECT id FROM queue WHERE slot = ?1", [index], |row| {
+                Ok(row.get::<_, u32>(0)?)
+            })
+        else {
+            return Err(eyre!(
+                "Couldn't find the currently song in the queue {index}"
+            ));
+        };
+        let Ok(song) = self.db.query_one(
+            "SELECT path,title,artist,album FROM songs WHERE id = ?1",
+            [id],
+            |row| {
+                Ok(Song {
+                    path: row.get::<_, String>(0)?.into(),
+                    title: row.get(1)?,
+                    artist: row.get(2)?,
+                    album: row.get(3)?,
+                })
+            },
+        ) else {
+            return Err(eyre!("Couldn't find song in database: {id}"));
+        };
+        Ok(Some(PlaylistEntry::mostly_fake(0, SongId(id), song)))
     }
 }
 
 #[derive(Deserialize, Serialize, Hash)]
-// #[derive(Archive, RkyvDeserialize, RkyvSerialize)]
 pub struct Song {
-    pub file: Utf8PathBuf,
+    pub path: Utf8PathBuf,
     pub title: String,
     pub artist: String,
     pub album: String,

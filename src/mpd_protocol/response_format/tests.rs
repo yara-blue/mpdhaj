@@ -65,7 +65,7 @@ fn serialize_playlistinfo() {
     pretty_assertions::assert_eq!(
         response_format::to_string(&PlaylistInfo(vec![
             PlaylistEntry {
-                file: "Lukas Graham/7 Years.mp3".into(),
+                path: "Lukas Graham/7 Years.mp3".into(),
                 last_modified: "2025-06-15T22:08:17Z".parse().unwrap(),
                 added: "2025-11-07T15:33:17Z".parse().unwrap(),
                 format: AudioParams {
@@ -87,7 +87,7 @@ fn serialize_playlistinfo() {
                 id: SongId(294),
             },
             PlaylistEntry {
-                file: "Taylor Swift/1989/01 Welcome To New York.mp3".into(),
+                path: "Taylor Swift/1989/01 Welcome To New York.mp3".into(),
                 last_modified: "2025-06-15T22:06:26Z".parse().unwrap(),
                 added: "2025-11-07T15:33:05Z".parse().unwrap(),
                 format: AudioParams {
@@ -109,7 +109,7 @@ fn serialize_playlistinfo() {
                 id: SongId(295),
             },
             PlaylistEntry {
-                file: "Chappell Roan/EPs/Chappell Roan - School Nights (2017) [24B-44.1kHz]/03. Meantime.flac".into(),
+                path: "Chappell Roan/EPs/Chappell Roan - School Nights (2017) [24B-44.1kHz]/03. Meantime.flac".into(),
                 last_modified: "2025-06-15T22:14:00Z".parse().unwrap(),
                 added: "2025-11-07T15:36:03Z".parse().unwrap(),
                 format: AudioParams {

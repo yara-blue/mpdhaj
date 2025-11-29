@@ -7,7 +7,6 @@ use std::time::Duration;
 use camino::Utf8PathBuf;
 use color_eyre::{Section, eyre::Context};
 use jiff::Timestamp;
-// use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use rodio::{ChannelCount, SampleRate, nz};
 use serde::{Deserialize, Serialize};
 use strum::EnumString;
@@ -155,7 +154,6 @@ pub struct SongNumber(pub u32);
 pub struct PosInPlaylist(u32);
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
-// #[derive(rkyv::Archive, RkyvDeserialize, RkyvSerialize)]
 pub enum PlaybackState {
     Play,
     Pause,
@@ -178,7 +176,7 @@ pub struct PlaylistInfo(pub Vec<PlaylistEntry>);
 #[serde(rename_all = "PascalCase")]
 pub struct PlaylistEntry {
     #[serde(rename = "file")]
-    file: Utf8PathBuf,
+    path: Utf8PathBuf,
     #[serde(rename = "Last-Modified")]
     last_modified: jiff::Timestamp, // as 2025-06-15T22:06:58Z
     added: jiff::Timestamp, // as 2025-06-15T22:06:58Z
@@ -231,7 +229,7 @@ impl PlaylistEntry {
     /// almost all fields are todo!
     pub fn mostly_fake(pos: usize, id: SongId, song: crate::system::Song) -> Self {
         Self {
-            file: song.file,
+            path: song.path,
             last_modified: Timestamp::constant(0, 0),
             added: Timestamp::constant(0, 0),
             format: AudioParams {
