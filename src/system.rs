@@ -113,32 +113,30 @@ impl System {
     }
 
     pub fn queue(&self) -> Result<mpd_protocol::PlaylistInfo> {
-        // let queue: Vec<_> = self
-        //     .db
-        //     .queue()
-        //     .iter()
-        //     .enumerate_ok()
-        //     .collect::<Result<_, _>>()
-        //     .wrap_err("Error loading queue from database")?;
+        let mut ids = Vec::new();
+        let mut cur = self
+            .db
+            .query_one("SELECT head FROM state", [], |row| row.get::<_, u32>(0))?;
+        while cur != 0 {
+            let (next, id) =
+                self.db
+                    .query_one("SELECT next, id FROM queue WHERE slot = ?1", [cur], |row| {
+                        Ok((row.get::<_, u32>(0)?, row.get::<_, u32>(1)?))
+                    })?;
+            ids.push(id);
+            cur = next;
+        }
 
-        // let queue = queue
-        //     .into_iter()
-        //     .map(|(pos, song_id)| {
-        //         let song = self
-        //             .db
-        //             .library()
-        //             .get(song_id.0 as usize)
-        //             .wrap_err("Could not get song from database")?
-        //             .ok_or_eyre("Song id in queue was not found in library")
-        //             .with_note(|| format!("Song id: {song_id:?}"))?;
+        let songs = ids
+            .into_iter()
+            .enumerate()
+            .map(|(pos, song_id)| {
+                let song = self.song_from_id(song_id)?;
+                Ok::<_, Report>(PlaylistEntry::mostly_fake(pos, SongId(song_id), song))
+            })
+            .collect::<Result<_, _>>()?;
 
-        //         Ok::<_, Report>(PlaylistEntry::mostly_fake(pos, song_id, song))
-        //     })
-        //     .collect::<Result<Vec<_>, _>>()
-        //     .wrap_err("Failed to resolve queue")?;
-
-        // Ok(mpd_protocol::PlaylistInfo(queue))
-        todo!()
+        Ok(mpd_protocol::PlaylistInfo(songs))
     }
 
     pub fn playlists(&self) -> mpd_protocol::PlaylistList {
@@ -158,6 +156,23 @@ impl System {
         )?)
     }
 
+    fn song_from_id(&self, id: u32) -> Result<Song> {
+        self.db
+            .query_one(
+                "SELECT path, title, artist, album FROM songs WHERE id = ?1",
+                [id],
+                |row| {
+                    Ok(Song {
+                        path: row.get::<_, String>(0)?.into(),
+                        title: row.get(1)?,
+                        artist: row.get(2)?,
+                        album: row.get(3)?,
+                    })
+                },
+            )
+            .context("Couldn't find song in database: {id}")
+    }
+
     pub fn get_playlist(&self, name: &PlaylistName) -> Result<mpd_protocol::PlaylistInfo> {
         let Some(paths) = self.playlists.get(name) else {
             tracing::warn!("No playlist found with name: {name:?}");
@@ -173,22 +188,7 @@ impl System {
             .into_iter()
             .enumerate()
             .map(|(pos, song_id)| {
-                let song = self
-                    .db
-                    .query_one(
-                        "SELECT path,title,artist,album FROM songs WHERE id = ?1",
-                        [song_id],
-                        |row| {
-                            Ok(Song {
-                                path: row.get::<_, String>(0)?.into(),
-                                title: row.get(1)?,
-                                artist: row.get(2)?,
-                                album: row.get(3)?,
-                            })
-                        },
-                    )
-                    .context("Couldn't find song in database: {id}")?;
-
+                let song = self.song_from_id(song_id)?;
                 Ok::<_, Report>(PlaylistEntry::mostly_fake(pos, SongId(song_id), song))
             })
             .collect::<Result<_, _>>()?;
