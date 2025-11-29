@@ -247,12 +247,11 @@ impl System {
     }
 
     pub fn list_all_in(&self, dir: &Utf8Path) -> Result<Vec<ListItem>> {
-        // TODO: check that params work like this, might have to just `format!()` the query.
-        // could also just do the startswith filtering in rust
-        let mut stmt = self
-            .db
-            .prepare("SELECT path FROM songs WHERE path LIKE ?1 + '%'")?;
-        stmt.query_and_then([dir.as_str()], |row| {
+        let mut stmt = self.db.prepare(&format!(
+            "SELECT path FROM songs WHERE path LIKE '{}%'",
+            dir.as_str()
+        ))?;
+        stmt.query_and_then([], |row| {
             Result::Ok(ListItem::File(row.get::<_, String>(0)?.into()))
         })?
         .collect::<Result<Vec<_>, Report>>()
