@@ -10,7 +10,7 @@ use tokio::net::TcpListener;
 use tokio::task;
 use tracing::{debug, info, warn};
 
-use crate::mpd_protocol::{self, List, SubSystem, response_format};
+use crate::mpd_protocol::{self, SubSystem, response_format};
 use crate::{mpd_protocol::Command, system::System};
 
 pub(crate) async fn handle_clients(system: Arc<std::sync::Mutex<System>>) -> Result<()> {
@@ -192,34 +192,34 @@ async fn acknowledge_cmd_list_entry(
 }
 
 pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::Result<String> {
-    use Command as C;
+    use Command::*;
     let mut system = system.lock().expect("No thread should ever panick");
     Ok(match request {
-        C::BinaryLimit(_) => String::new(),
-        C::Commands => supported_command_list(),
-        C::Status => {
+        BinaryLimit(_) => String::new(),
+        Commands => supported_command_list(),
+        Status => {
             response_format::to_string(&system.status()).wrap_err("Failed to get system status")?
         }
-        C::PlaylistInfo => {
+        PlaylistInfo => {
             response_format::to_string(&system.queue().wrap_err("Failed to get current queue")?)?
         }
-        C::ListPlayLists => response_format::to_string(&system.playlists())
+        ListPlayLists => response_format::to_string(&system.playlists())
             .wrap_err("Failed to get list of playlists")?,
-        C::ListPlaylistInfo(playlist_name) => response_format::to_string(
+        ListPlaylistInfo(playlist_name) => response_format::to_string(
             &system
                 .get_playlist(&playlist_name)
                 .wrap_err("Failed to get playlist")
                 .with_note(|| format!("playlist name: {playlist_name:?}"))?,
         )?,
-        C::PlayId(_pos_in_playlist) => todo!(),
-        C::Clear => todo!(),
-        C::Load(_playlist_name) => todo!(),
-        C::ListAll(dir) => response_format::to_string(
+        PlayId(_pos_in_playlist) => todo!(),
+        Clear => todo!(),
+        Load(_playlist_name) => todo!(),
+        ListAll(dir) => response_format::to_string(
             &system
-                .list_all_in(dir)
+                .list_all_in(&dir)
                 .wrap_err("Failed to list all songs")?,
         )?,
-        C::List(List {
+        List(mpd_protocol::List {
             tag_to_list,
             group_by,
         }) => {
@@ -232,28 +232,28 @@ pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::
                 .wrap_err("Failed to list tags")
                 .with_note(|| format!("Tag type: {tag_to_list}"))?
         }
-        C::LsInfo(song) => response_format::to_string(
+        LsInfo(song) => response_format::to_string(
             &system
                 .song_info_from_path(&song)
                 .wrap_err("Failed to get song info")
                 .with_note(|| format!("song path: {song:?}"))?,
         )?,
-        C::Volume(_volume_change) => todo!(),
-        C::Play => todo!(),
-        C::Add(song) => {
+        Volume(_volume_change) => todo!(),
+        Play => todo!(),
+        Add(song) => {
             system
                 .add_to_queue(&song)
                 .wrap_err("Failed to add song to queue")
                 .with_note(|| format!("song path: {song:?}"))?;
             String::new()
         }
-        C::Find(query) => response_format::to_string(
+        Find(query) => response_format::to_string(
             &system
                 .handle_find(&query)
                 .wrap_err("Failed to handle find")
                 .with_note(|| format!("query: {query:?}"))?,
         )?,
-        C::FindAdd(query) => {
+        FindAdd(query) => {
             let results = system
                 .handle_find(&query)
                 .wrap_err("Failed to handle find")
@@ -266,12 +266,12 @@ pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::
             }
             String::new()
         }
-        C::CurrentSong => response_format::to_string(
+        CurrentSong => response_format::to_string(
             &system
                 .current_song()
                 .wrap_err("Could not get current song")?,
         )?,
-        C::Idle(_) | C::NoIdle => panic!("These should be handled in the outer loop"),
+        Idle(_) | NoIdle => panic!("These should be handled in the outer loop"),
     })
 }
 

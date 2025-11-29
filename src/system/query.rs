@@ -16,24 +16,25 @@ use crate::{
 pub(crate) fn handle_find(system: &super::System, query: &Query) -> Result<Vec<FindResult>> {
     let query_root = &query.0;
 
-    system
-        .db
-        .library()
-        .iter()
-        .filter_ok(|song| apply_query(song, query_root))
-        .map_ok(|song| FindResult {
-            file: song.file,
-            last_modified: jiff::Timestamp::constant(0, 0),
-            added: jiff::Timestamp::constant(0, 0),
-            format: AudioParams {
-                samplerate: nz!(42),
-                channels: nz!(1),
-                bits: 16,
-            },
-            duration: Duration::from_secs(69),
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .wrap_err("Could not iterate through database")
+    // system
+    //     .db
+    //     .library()
+    //     .iter()
+    //     .filter_ok(|song| apply_query(song, query_root))
+    //     .map_ok(|song| FindResult {
+    //         file: song.file,
+    //         last_modified: jiff::Timestamp::constant(0, 0),
+    //         added: jiff::Timestamp::constant(0, 0),
+    //         format: AudioParams {
+    //             samplerate: nz!(42),
+    //             channels: nz!(1),
+    //             bits: 16,
+    //         },
+    //         duration: Duration::from_secs(69),
+    //     })
+    //     .collect::<Result<Vec<_>, _>>()
+    //     .wrap_err("Could not iterate through database")
+    todo!()
 }
 
 impl Song {
