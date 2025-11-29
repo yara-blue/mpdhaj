@@ -10,7 +10,7 @@ use tokio::net::TcpListener;
 use tokio::task;
 use tracing::{debug, info, warn};
 
-use crate::mpd_protocol::{self, SubSystem, response_format};
+use crate::mpd_protocol::{self, PlaybackState, SubSystem, response_format};
 use crate::{mpd_protocol::Command, system::System};
 
 pub(crate) async fn handle_clients(system: Arc<std::sync::Mutex<System>>) -> Result<()> {
@@ -109,7 +109,7 @@ async fn handle_command_list(
         if matches!(command, Command::Idle(_) | Command::NoIdle) {
             return Err(eyre!("Idle and NoIde are not allowed in command lists"));
         }
-        let response = perform_command(command, &system)?;
+        let response = perform_command(command, system)?;
         command_executed += 1;
 
         debug!("reply: {response}");
@@ -193,7 +193,7 @@ async fn acknowledge_cmd_list_entry(
 
 pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::Result<String> {
     use Command::*;
-    let mut system = system.lock().expect("No thread should ever panick");
+    let mut system = system.lock().expect("No thread should ever panic");
     Ok(match request {
         BinaryLimit(_) => String::new(),
         Commands => supported_command_list(),
@@ -211,9 +211,11 @@ pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::
                 .wrap_err("Failed to get playlist")
                 .with_note(|| format!("playlist name: {playlist_name:?}"))?,
         )?,
-        PlayId(_pos_in_playlist) => todo!(),
-        Clear => todo!(),
-        Load(_playlist_name) => todo!(),
+        Clear => {
+            system.clear()?;
+            system.playing = PlaybackState::Stop;
+            response_format::to_string(&system.status()).wrap_err("Failed to get system status")?
+        }
         ListAll(dir) => response_format::to_string(
             &system
                 .list_all_in(&dir)
@@ -228,9 +230,10 @@ pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::
             }
 
             system
-                .list_tags(&tag_to_list)
+                .list_tag(&tag_to_list)
                 .wrap_err("Failed to list tags")
                 .with_note(|| format!("Tag type: {tag_to_list}"))?
+                .join("\n")
         }
         LsInfo(song) => response_format::to_string(
             &system
@@ -240,6 +243,12 @@ pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::
         )?,
         Volume(_volume_change) => todo!(),
         Play => todo!(),
+        Pause => todo!(),
+        Next => todo!(),
+        Prev => todo!(),
+        PlayId(_pos_in_playlist) => todo!(),
+        Load(_playlist_name) => todo!(),
+        Insert(song) => todo!(),
         Add(song) => {
             system
                 .add_to_queue(&song)
@@ -260,7 +269,7 @@ pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::
                 .with_note(|| format!("query: {query:?}"))?;
             for result in results {
                 system
-                    .add_to_queue(&result.file)
+                    .add_to_queue(&result.path)
                     .wrap_err("Could not add matching song to queue")
                     .with_note(|| format!("song: {result:?}"))?
             }
@@ -278,7 +287,7 @@ pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::
 fn supported_command_list() -> String {
     use strum::VariantNames;
     let mut list = Command::VARIANTS
-        .into_iter()
+        .iter()
         .map(|name| name.replace("-", ""))
         .map(|command| format!("command: {command}"))
         .join("\n");

@@ -21,7 +21,7 @@ pub fn load_from_dir(path: &Utf8Path) -> Result<HashMap<PlaylistName, Vec<Utf8Pa
         .map_ok(|p| {
             Utf8Path::from_path(&p)
                 .wrap_err("non-utf8 path")
-                .and_then(|p| load_file(p))
+                .and_then(load_file)
         })
         .flatten()
         .collect()

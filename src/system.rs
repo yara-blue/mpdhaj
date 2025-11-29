@@ -1,16 +1,16 @@
 use camino::{Utf8Path, Utf8PathBuf};
-use color_eyre::eyre::{Context, ContextCompat, OptionExt, eyre};
-use color_eyre::{Report, Result, Section};
+use color_eyre::eyre::Context;
+use color_eyre::{Report, Result, eyre::eyre};
 use etcetera::BaseStrategy;
 use itertools::Itertools;
-use jiff::Timestamp;
 use rodio::nz;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::time::Duration;
 use strum::IntoEnumIterator;
 use tokio::sync::mpsc;
+
+use std::collections::HashMap;
+use std::time::Duration;
 
 use crate::mpd_protocol::query::Query;
 use crate::mpd_protocol::{
@@ -18,21 +18,15 @@ use crate::mpd_protocol::{
     PlaylistInfo, SongId, SongNumber, SubSystem, Tag, Volume,
 };
 use crate::playlist::{self, PlaylistName};
-use crate::scan::{self, MetaData, scan_path};
-use crate::util::{LogError, WhatItertoolsIsMissing};
 
 mod query;
 
-// TODO: scan in the background/on restart
 pub struct System {
-    db: Connection,
-    playing: PlaybackState,
-    // queue: VecList<SongId>,
-    // library: HashSet<Song>,
-    // song_id_from_path: HashMap<Utf8PathBuf, SongId>,
-    playlists: HashMap<PlaylistName, Vec<Utf8PathBuf>>,
-    idlers: HashMap<SubSystem, Vec<mpsc::Sender<SubSystem>>>,
-    music_dir: Utf8PathBuf,
+    pub db: Connection,
+    pub playing: PlaybackState,
+    pub playlists: HashMap<PlaylistName, Vec<Utf8PathBuf>>,
+    pub idlers: HashMap<SubSystem, Vec<mpsc::Sender<SubSystem>>>,
+    pub music_dir: Utf8PathBuf,
 }
 
 impl System {
@@ -43,19 +37,26 @@ impl System {
         db.execute_batch(
             "BEGIN;
             CREATE TABLE IF NOT EXISTS songs (
-                id      INTEGER PRIMARY KEY AUTOINCREMENT,
-                path    TEXT NOT NULL,
-                mtime   TEXT NOT NULL, -- maybe use hash BLOB instead?
-                title   TEXT,
-                artist  TEXT,
-                album   TEXT
-                -- TODO: tags/albumart/etc
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                path        TEXT NOT NULL,
+                mtime       TEXT NOT NULL,
+                generation  INTEGER DEFAULT 0,
+                title       TEXT,
+                artist      TEXT,
+                album       TEXT
+                -- TODO: update as we add more tags
+                -- TODO: playcount/skipcount
             );
-            CREATE TABLE IF NOT EXISTS queue_state (
-                current INTEGER,
-                first   INTEGER,
-                last    INTEGER
+            CREATE TABLE IF NOT EXISTS state (
+                id          INTEGER PRIMARY KEY,
+                generation  INTEGER,
+                current     INTEGER,
+                head        INTEGER,
+                tail        INTEGER
+                -- TODO: persist mpd status like repeat/random/single/consume
             );
+            INSERT OR IGNORE INTO state
+                (id, generation, current, head, tail) VALUES (0, 0, 0, 0, 0);
             CREATE TABLE IF NOT EXISTS queue (
                 -- can't use id as primary key, need to support duplicates
                 slot    INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -63,7 +64,6 @@ impl System {
                 next    INTEGER,
                 prev    INTEGER
             );
-            -- TODO: persist mpd status like repeat/random/single/consume
             COMMIT;",
         )?;
         let playlist_dir = playlist_dir.unwrap_or_else(|| music_dir.join("playlists"));
@@ -81,72 +81,6 @@ impl System {
             playing: Default::default(),
             idlers: Default::default(),
         })
-    }
-
-    async fn scan_song(
-        &self,
-        relpath: &Utf8Path,
-        abspath: &Utf8Path,
-        mtime: Timestamp,
-    ) -> Result<()> {
-        if let Ok((id, cached_mtime)) = self.db.query_one(
-            "SELECT id, mtime FROM songs WHERE path = ?1",
-            [relpath.as_str()],
-            |row| Ok((row.get::<_, u32>(0)?, row.get::<_, String>(1)?)),
-        ) {
-            if let Ok(cached_mtime) = cached_mtime.parse()
-                && mtime != cached_mtime
-                && let Some(song_metadata) = scan_path(abspath).await
-            {
-                self.db.execute(
-                    "UPDATE songs
-                    SET mtime = ?2, title = ?3, artist = ?4, album = ?5
-                    WHERE id = ?1
-                        ",
-                    (
-                        id,
-                        relpath.as_str(),
-                        mtime.to_string(),
-                        song_metadata.title,
-                        song_metadata.artist,
-                        song_metadata.album,
-                    ),
-                )?;
-            }
-        } else {
-            let Some(song_metadata) = scan_path(abspath).await else {
-                return Ok(());
-            };
-            self.db.execute(
-                "INSERT INTO songs (path, mtime, title, artist, album) VALUES (?1, ?2, ?3, ?4, ?5)",
-                (
-                    relpath.as_str(),
-                    mtime.to_string(),
-                    song_metadata.title,
-                    song_metadata.artist,
-                    song_metadata.album,
-                ),
-            )?;
-        }
-        Ok(())
-    }
-
-    pub async fn rescan(&mut self) -> Result<()> {
-        // TODO: maybe use async_walkdir instead? doesn't really matter if we only re-scan on startup
-        // TODO: handle song deletion between restarts, remove row if it's path doesn't show up
-        let music_dir = &self.music_dir;
-        for e in walkdir::WalkDir::new(music_dir) {
-            if let Ok(e) = e
-                && let Ok(metadata) = e.metadata()
-                && !metadata.is_dir()
-                && let Ok(Ok(mtime)) = metadata.modified().map(|t| Timestamp::try_from(t))
-                && let Some(abspath) = Utf8Path::from_path(e.path())
-                && let Ok(relpath) = abspath.strip_prefix(music_dir)
-            {
-                self.scan_song(relpath, abspath, mtime).await?;
-            }
-        }
-        Ok(())
     }
 
     pub fn status(&self) -> mpd_protocol::Status {
@@ -216,59 +150,65 @@ impl System {
         mpd_protocol::PlaylistList(list)
     }
 
+    fn song_id_from_path(&self, path: &Utf8Path) -> Result<u32> {
+        Ok(self.db.query_one(
+            "SELECT id FROM songs WHERE path = ?1",
+            [path.as_str()],
+            |row| row.get(0),
+        )?)
+    }
+
     pub fn get_playlist(&self, name: &PlaylistName) -> Result<mpd_protocol::PlaylistInfo> {
         let Some(paths) = self.playlists.get(name) else {
             tracing::warn!("No playlist found with name: {name:?}");
             return Ok(PlaylistInfo(Vec::new()));
         };
 
-        todo!()
-        // let song_ids: Vec<_> = paths
-        //     .into_iter()
-        //     .map(|path| {
-        //         self.db
-        //             .song_id_from_path()
-        //             .get(path)
-        //             .wrap_err("Could not read song_id lookup table")
-        //             .and_then(|song_id| song_id.ok_or_eyre("Path is not in song_id lookup table"))
-        //             .with_note(|| format!("path: {path}"))
-        //     })
-        //     .collect::<Result<_, _>>()?;
+        let song_ids: Vec<_> = paths
+            .iter()
+            .map(|path| self.song_id_from_path(path))
+            .collect::<Result<_, _>>()?;
 
-        // let songs = song_ids
-        //     .into_iter()
-        //     .enumerate()
-        //     .map(|(pos, song_id)| {
-        //         let song = self
-        //             .db
-        //             .library()
-        //             .get(song_id.0 as usize)
-        //             .wrap_err("Could not get song from database")?
-        //             .ok_or_eyre("Song id in playlist was not found in library")
-        //             .with_note(|| format!("Song id: {song_id:?}"))?;
+        let songs = song_ids
+            .into_iter()
+            .enumerate()
+            .map(|(pos, song_id)| {
+                let song = self
+                    .db
+                    .query_one(
+                        "SELECT path,title,artist,album FROM songs WHERE id = ?1",
+                        [song_id],
+                        |row| {
+                            Ok(Song {
+                                path: row.get::<_, String>(0)?.into(),
+                                title: row.get(1)?,
+                                artist: row.get(2)?,
+                                album: row.get(3)?,
+                            })
+                        },
+                    )
+                    .context("Couldn't find song in database: {id}")?;
 
-        //         Ok::<_, Report>(PlaylistEntry::mostly_fake(pos, song_id, song))
-        //     })
-        //     .collect::<Result<_, _>>()?;
+                Ok::<_, Report>(PlaylistEntry::mostly_fake(pos, SongId(song_id), song))
+            })
+            .collect::<Result<_, _>>()?;
 
-        // Ok(mpd_protocol::PlaylistInfo(songs))
+        Ok(mpd_protocol::PlaylistInfo(songs))
     }
 
     pub fn song_info_from_path(&self, path: &Utf8Path) -> Result<Song> {
-        // let song_id = self
-        //     .db
-        //     .song_id_from_path()
-        //     .get(path)
-        //     .wrap_err("Could not read song_id lookup table")
-        //     .and_then(|song_id| song_id.ok_or_eyre("Path is not in song_id lookup table"))
-        //     .with_note(|| format!("path: {path}"))?;
-        // self.db
-        //     .library()
-        //     .get(song_id.0 as usize)
-        //     .wrap_err("Could not get song from database")?
-        //     .ok_or_eyre("Song id in playlist was not found in library")
-        //     .with_note(|| format!("Song id: {song_id:?}"))
-        todo!()
+        Ok(self.db.query_one(
+            "SELECT title, artist, album FROM songs WHERE path = ?1",
+            [path.as_str()],
+            |r| {
+                Ok(Song {
+                    path: path.to_owned(),
+                    title: r.get(0)?,
+                    artist: r.get(1)?,
+                    album: r.get(2)?,
+                })
+            },
+        )?)
     }
 
     pub fn idle(&mut self, mut subsystems: Vec<SubSystem>) -> mpsc::Receiver<SubSystem> {
@@ -287,58 +227,44 @@ impl System {
     }
 
     pub fn add_to_queue(&mut self, path: &Utf8Path) -> Result<()> {
-        todo!()
-        // let song_id = self
-        //     .db
-        //     .song_id_from_path()
-        //     .get(path)
-        //     .wrap_err("Could not read song_id lookup table")
-        //     .and_then(|song_id| song_id.ok_or_eyre("Path is not in song_id lookup table"))
-        //     .with_note(|| format!("path: {path}"))?;
-        // self.db
-        //     .queue()
-        //     .push(&song_id)
-        //     .wrap_err("Could not append song_id to queue")
+        let id = self.song_id_from_path(path)?;
+        let tail = self
+            .db
+            .query_one("SELECT tail FROM state", [], |row| row.get::<_, u32>(0))?;
+        let mut stmt = self
+            .db
+            .prepare("INSERT INTO queue (id, prev, next) VALUES (?1, ?2, 0)")?;
+        let slot = stmt.insert([id, tail])?;
+        if tail == 0 {
+            self.db
+                .execute("UPDATE state SET head = ?1, tail = ?2", [slot, slot])?;
+        } else {
+            self.db.execute("UPDATE state SET tail = ?1", [slot])?;
+            self.db
+                .execute("UPDATE queue SET next = ?1 WHERE id = ?2", (slot, tail))?;
+        }
+        Ok(())
     }
 
     pub fn list_all_in(&self, dir: &Utf8Path) -> Result<Vec<ListItem>> {
-        // let mut paths = HashSet::new();
-        // for path in self
-        //     .db
-        //     .library()
-        //     .iter()
-        //     .map_ok(|song| song.file)
-        //     .filter_ok(|path| path.starts_with(&dir))
-        // {
-        //     let path = path.wrap_err("Error reading all library items from db")?;
-        //     // annoyingly mpd's list all includes dirs... we dont store those
-        //     // so create theme from the file paths here.
-        //     paths.extend(path.parent().map(Path::to_owned).map(ListItem::Directory));
-        //     paths.insert(ListItem::File(path));
-        // }
-        // Ok(paths.into_iter().collect_vec())
-        todo!()
+        // TODO: check that params work like this, might have to just `format!()` the query.
+        // could also just do the startswith filtering in rust
+        let mut stmt = self
+            .db
+            .prepare("SELECT path FROM songs WHERE path LIKE ?1 + '%'")?;
+        stmt.query_and_then([dir.as_str()], |row| {
+            Result::Ok(ListItem::File(row.get::<_, String>(0)?.into()))
+        })?
+        .collect::<Result<Vec<_>, Report>>()
     }
 
-    pub fn list_tags(&self, tag_to_list: &Tag) -> Result<String> {
-        // let mut list = self
-        //     .db
-        //     .library()
-        //     .iter()
-        //     .map_ok(|song| match tag_to_list {
-        //         Tag::Album => song.album,
-        //         Tag::AlbumArtist => "todo".to_string(),
-        //         Tag::Artist => song.artist,
-        //     })
-        //     .collect::<Result<HashSet<_>, _>>()
-        //     .wrap_err("Database error while iterating over library")?
-        //     .into_iter()
-        //     .sorted_unstable()
-        //     .map(|tag_value| format!("{tag_to_list}: {tag_value}"))
-        //     .join("\n");
-        // list.push('\n');
-        // Ok(list)
-        todo!()
+    pub fn list_tag(&self, tag_to_list: &Tag) -> Result<Vec<String>> {
+        let mut stmt = self.db.prepare("SELECT DISTINCT ?1 FROM songs")?;
+        Ok(stmt
+            .query_and_then([tag_to_list.to_string().to_lowercase()], |row| {
+                row.get::<_, String>(0)
+            })?
+            .collect::<Result<Vec<_>, _>>()?)
     }
 
     pub fn handle_find(&self, query: &Query) -> Result<Vec<FindResult>> {
@@ -348,37 +274,46 @@ impl System {
     pub fn current_song(&self) -> Result<Option<PlaylistEntry>> {
         let Ok(index) = self
             .db
-            .query_one("SELECT current FROM queue_state", [], |row| {
-                Ok(row.get::<_, u32>(0)?)
-            })
+            .query_one("SELECT current FROM state", [], |row| row.get::<_, u32>(0))
         else {
             return Ok(None);
         };
         let Ok(id) = self
             .db
             .query_one("SELECT id FROM queue WHERE slot = ?1", [index], |row| {
-                Ok(row.get::<_, u32>(0)?)
+                row.get::<_, u32>(0)
             })
         else {
             return Err(eyre!(
                 "Couldn't find the currently song in the queue {index}"
             ));
         };
-        let Ok(song) = self.db.query_one(
-            "SELECT path,title,artist,album FROM songs WHERE id = ?1",
-            [id],
-            |row| {
-                Ok(Song {
-                    path: row.get::<_, String>(0)?.into(),
-                    title: row.get(1)?,
-                    artist: row.get(2)?,
-                    album: row.get(3)?,
-                })
-            },
-        ) else {
-            return Err(eyre!("Couldn't find song in database: {id}"));
-        };
+        let song = self
+            .db
+            .query_one(
+                "SELECT path,title,artist,album FROM songs WHERE id = ?1",
+                [id],
+                |row| {
+                    Ok(Song {
+                        path: row.get::<_, String>(0)?.into(),
+                        title: row.get(1)?,
+                        artist: row.get(2)?,
+                        album: row.get(3)?,
+                    })
+                },
+            )
+            .context("Couldn't find song in database: {id}")?;
         Ok(Some(PlaylistEntry::mostly_fake(0, SongId(id), song)))
+    }
+
+    pub fn clear(&self) -> Result<()> {
+        self.db.execute_batch(
+            "BEGIN
+            UPDATE state SET current = 0;
+            DELETE FROM queue;
+            COMMIT;",
+        )?;
+        Ok(())
     }
 }
 

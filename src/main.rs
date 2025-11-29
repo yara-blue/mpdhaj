@@ -1,3 +1,4 @@
+#![allow(unused)]
 use std::sync::{Arc, Mutex};
 
 use clap::Parser;
@@ -31,7 +32,7 @@ async fn main() -> Result<()> {
         Commands::Proxy { address } => proxy::handle_clients(options.port, &address).await?,
         Commands::Run(args) => {
             let system = Arc::new(Mutex::new({
-                let mut s = System::new(args.music_dir, args.playlist_dir)
+                let s = System::new(args.music_dir, args.playlist_dir)
                     .wrap_err("Could not start system")?;
                 s.rescan().await?;
                 s
@@ -39,9 +40,9 @@ async fn main() -> Result<()> {
             mpd_client::handle_clients(system).await?;
         }
         Commands::Scan(args) => {
-            let mut system = System::new(args.music_dir, args.playlist_dir)
+            let system = System::new(args.music_dir, args.playlist_dir)
                 .wrap_err("Could not start system")?;
-            system.rescan().await?;
+            system.rescan().await?
         }
     };
 
