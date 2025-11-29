@@ -1,4 +1,4 @@
-use crate::scan::{FormatScanner, MetaData, UNKNOWN};
+use crate::scan::{FormatScanner, Metadata, UNKNOWN};
 
 use camino::Utf8PathBuf;
 use color_eyre::{Result, Section, eyre::Context};
@@ -13,7 +13,7 @@ impl Scanner {
 }
 
 impl FormatScanner for Scanner {
-    fn scan(&self, path: Utf8PathBuf) -> Result<Option<MetaData>> {
+    fn scan(&self, path: Utf8PathBuf) -> Result<Option<Metadata>> {
         let tag = match Tag::new().read_from_path(&path) {
             Ok(tag) => tag,
             Err(
@@ -28,9 +28,8 @@ impl FormatScanner for Scanner {
             }
         };
 
-        Ok(Some(MetaData {
+        Ok(Some(Metadata {
             title: tag.title().unwrap_or(UNKNOWN).to_string(),
-            file: path,
             artist: tag.artist().unwrap_or(UNKNOWN).to_string(),
             album: tag
                 .album()

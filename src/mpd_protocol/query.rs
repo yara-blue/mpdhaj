@@ -1,4 +1,3 @@
-
 use camino::Utf8PathBuf;
 use color_eyre::{
     Result, Section,

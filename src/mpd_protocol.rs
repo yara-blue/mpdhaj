@@ -14,7 +14,7 @@ use tracing::instrument;
 
 use crate::{mpd_protocol::query::Query, playlist::PlaylistName};
 
-pub const VERSION: &'static str = "0.24.4";
+pub const VERSION: &str = "0.24.4";
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Hash, strum::EnumIter)]
 pub enum SubSystem {
@@ -69,8 +69,13 @@ pub enum Command {
     Volume(VolumeChange),
     /// Unpause
     Play,
+    Pause,
+    Next,
+    Prev,
     /// Add an item to the queue
     Add(Utf8PathBuf),
+    /// Like "Add" but goes after the current song rather than at the end of the queue
+    Insert(Utf8PathBuf),
     List(List),
     /// List everything in this dir
     ListAll(Utf8PathBuf),
@@ -86,15 +91,17 @@ pub struct List {
     pub group_by: Vec<Tag>,
 }
 
-#[derive(
-    Debug, Default, Deserialize, Serialize, strum_macros::Display, PartialEq, Eq, Clone, Copy,
-)]
+#[derive(Deserialize, Serialize, strum_macros::Display)]
 // #[serde(rename_all = "lowercase")]
+// #[strum(serialize_all = "lowercase")]
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub enum Tag {
     #[default]
     Album,
-    AlbumArtist,
     Artist,
+    AlbumArtist,
+    Title,
+    // Genre, Date, Composer, Performer, Comment, Disc, OriginalDate, Label, Work, Conductor, Ensemble, Movement, MovementNumber, Location, Mood
 }
 
 impl Command {
@@ -205,6 +212,7 @@ pub struct PlaylistEntry {
 
 #[derive(Serialize, Debug, Hash, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
+// TODO: check with yara, my mpd doesn't seem to return directories?
 pub enum ListItem {
     Directory(Utf8PathBuf),
     File(Utf8PathBuf),
@@ -214,7 +222,7 @@ pub enum ListItem {
 #[serde(rename_all = "PascalCase")]
 pub struct FindResult {
     #[serde(rename = "file")]
-    pub file: Utf8PathBuf,
+    pub path: Utf8PathBuf,
     #[serde(rename = "Last-Modified")]
     pub last_modified: jiff::Timestamp,
     pub added: jiff::Timestamp,
