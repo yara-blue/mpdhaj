@@ -271,6 +271,9 @@ pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::
                 .current_song()
                 .wrap_err("Could not get current song")?,
         )?,
+        C::Stats => {
+            response_format::to_string(&system.stats().wrap_err("Could not gather statistics")?)?
+        }
         C::Idle(_) | C::NoIdle => panic!("These should be handled in the outer loop"),
     })
 }

@@ -47,3 +47,10 @@ pub fn subsystem(s: SubSystem) -> String {
     let s = ser::to_string(&s).expect("Subsystem should always serialize");
     format!("changed: {s}\nOK\n")
 }
+
+pub fn unix_time<S>(ts: &jiff::Timestamp, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_i64(ts.as_second())
+}

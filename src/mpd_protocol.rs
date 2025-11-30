@@ -77,6 +77,8 @@ pub enum Command {
     Find(Query),
     FindAdd(Query),
     CurrentSong,
+    /// Returns some statistics like number of songs
+    Stats,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -86,10 +88,10 @@ pub struct List {
     pub group_by: Vec<Tag>,
 }
 
+/// full list here: https://mpd.readthedocs.io/en/latest/protocol.html#tags
 #[derive(
     Debug, Default, Deserialize, Serialize, strum_macros::Display, PartialEq, Eq, Clone, Copy,
 )]
-// #[serde(rename_all = "lowercase")]
 pub enum Tag {
     #[default]
     Album,
@@ -169,14 +171,14 @@ pub struct AudioParams {
     pub channels: ChannelCount,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct PlaylistInfo(pub Vec<PlaylistEntry>);
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 #[serde(rename_all = "PascalCase")]
 pub struct PlaylistEntry {
     #[serde(rename = "file")]
-    file: PathBuf,
+    pub file: PathBuf,
     #[serde(rename = "Last-Modified")]
     last_modified: jiff::Timestamp, // as 2025-06-15T22:06:58Z
     added: jiff::Timestamp, // as 2025-06-15T22:06:58Z
@@ -198,7 +200,7 @@ pub struct PlaylistEntry {
     disc: Option<usize>,
     #[serde(serialize_with = "response_format::duration_millis_precise")]
     #[serde(rename = "duration")]
-    duration: Duration,
+    pub duration: Duration,
     pos: PosInPlaylist,
     id: SongId,
 }
@@ -246,7 +248,7 @@ impl PlaylistEntry {
             genre: None,
             label: "todo".to_string(),
             disc: None,
-            duration: Duration::ZERO,
+            duration: song.playtime,
             pos: PosInPlaylist(
                 pos.try_into()
                     .expect("You should not have 4 billion soungs"),
@@ -290,4 +292,19 @@ pub struct Status {
     pub error: Option<String>,
     pub nextsong: SongNumber,
     pub nextsongid: SongId,
+}
+
+#[derive(Serialize, Debug)]
+pub struct Stats {
+    pub artists: usize,
+    pub albums: usize,
+    pub songs: usize,
+    #[serde(serialize_with = "response_format::duration_seconds")]
+    pub uptime: Duration,
+    #[serde(serialize_with = "response_format::duration_seconds")]
+    pub db_playtime: Duration,
+    #[serde(serialize_with = "response_format::unix_time")]
+    pub db_update: jiff::Timestamp,
+    #[serde(serialize_with = "response_format::duration_seconds")]
+    pub playtime: Duration,
 }

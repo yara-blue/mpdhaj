@@ -6,7 +6,8 @@ edition = "2024"
 [dependencies]
 clap = { version = "4.5.51", features = ["derive"] }
 color-eyre = "0.6.5"
-dbstruct = { git = "https://github.com/dvdsk/dbstruct", version = "0.6.0" }
+# dbstruct = { git = "https://github.com/dvdsk/dbstruct" }
+dbstruct = { path = "/home/david/Documents/dbstruct" }
 futures-concurrency = "7.6.3"
 itertools = "0.14.0"
 jiff = { version = "0.2.16", features = ["serde"] }

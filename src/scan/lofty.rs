@@ -2,7 +2,11 @@ use std::path::PathBuf;
 
 use crate::scan::{FormatScanner, MetaData, UNKNOWN};
 use color_eyre::{Result, Section, eyre::Context};
-use lofty::{file::TaggedFileExt, probe::read_from_path, tag::Accessor};
+use lofty::{
+    file::{AudioFile, TaggedFileExt},
+    probe::read_from_path,
+    tag::Accessor,
+};
 
 pub struct Scanner;
 
@@ -22,11 +26,14 @@ impl FormatScanner for Scanner {
             return Ok(None);
         };
 
+        let playtime = tagged_file.properties().duration();
+
         Ok(Some(MetaData {
             title: tag.title().unwrap_or(UNKNOWN.into()).to_string(),
             file: path,
             artist: tag.artist().unwrap_or(UNKNOWN.into()).to_string(),
             album: tag.album().unwrap_or(UNKNOWN.into()).to_string(),
+            playtime,
         }))
     }
 }

@@ -1,6 +1,7 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Duration};
 
 use moosicbox_audiotags::{Error, Tag};
+use rodio::Source;
 
 use crate::scan::{FormatScanner, MetaData, UNKNOWN};
 use color_eyre::{Result, Section, eyre::Context};
@@ -29,6 +30,14 @@ impl FormatScanner for Scanner {
             }
         };
 
+        let playtime = if let Some(duration) = tag.duration().map(Duration::from_secs_f64) {
+            duration
+        } else {
+            let file = std::fs::File::open(&path).wrap_err("Could not open file")?;
+            let source = rodio::Decoder::try_from(file).wrap_err("Can not decode music file")?;
+            source.total_duration().unwrap_or_default()
+        };
+
         Ok(Some(MetaData {
             title: tag.title().unwrap_or(UNKNOWN).to_string(),
             file: path,
@@ -38,6 +47,7 @@ impl FormatScanner for Scanner {
                 .map(|album| album.title)
                 .unwrap_or(UNKNOWN)
                 .to_string(),
+            playtime,
         }))
     }
 }

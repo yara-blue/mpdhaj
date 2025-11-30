@@ -6,14 +6,15 @@ use rodio::nz;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use strum::IntoEnumIterator;
 use tokio::sync::mpsc;
+use tracing::instrument;
 
 use crate::mpd_protocol::query::Query;
 use crate::mpd_protocol::{
     self, AudioParams, FindResult, ListItem, PlayList, PlaybackState, PlaylistEntry, PlaylistId,
-    PlaylistInfo, SongId, SongNumber, SubSystem, Tag, Volume,
+    PlaylistInfo, SongId, SongNumber, Stats, SubSystem, Tag, Volume,
 };
 use crate::playlist::{self, PlaylistName};
 use crate::scan::{self, MetaData};
@@ -37,9 +38,12 @@ pub struct State {
 
     // just rebuild this on rescan
     song_id_from_path: HashMap<PathBuf, SongId>,
+
+    last_db_update: Option<jiff::Timestamp>,
 }
 
 pub struct System {
+    up_since: Instant,
     db: State,
     playlists: HashMap<PlaylistName, Vec<PathBuf>>,
     idlers: HashMap<SubSystem, Vec<mpsc::Sender<SubSystem>>>,
@@ -52,7 +56,7 @@ impl System {
         let cache = dirs.cache_dir().join("mpdhaj").join("database");
         let state = State::open_path(&cache)
             .wrap_err("Could not open db")
-            .note("path: mpdhaj_database")
+            .with_note(|| format!("path: {}", cache.display()))
             .suggestion(
                 "The database format probably changed, \
                 try removing the database folder",
@@ -65,7 +69,28 @@ impl System {
                 Default::default()
             }
         };
+        dbg!(state.queue().len());
+        dbg!(
+            state
+                .ds
+                .iter()
+                .keys()
+                .filter_ok(|key| key.starts_with(&[3]))
+                .collect_vec()
+        );
+
+        dbg!(::dbstruct::traits::data_store::Ordered::get_lt(
+            &state.ds,
+            &::dbstruct::wrapper::VecPrefixed::max(3),
+        )?
+        .map(|(key, _): (::dbstruct::wrapper::VecPrefixed, SongId)| dbg!(key))
+        .filter(|key| key.prefix() == 3)
+        .map(|key| key.index() + 1) // a vecs len is index + 1
+        .unwrap_or(0));
+
+        // state.queue().clear().unwrap();
         Ok(System {
+            up_since: Instant::now(),
             db: state,
             playlists,
             idlers: Default::default(),
@@ -75,7 +100,24 @@ impl System {
 
     pub async fn scan(&mut self) -> Result<()> {
         // Song ids will change, reset db
+        dbg!(self.db.queue().len());
+        dbg!(
+            self.db
+                .ds
+                .iter()
+                .keys()
+                .filter_ok(|key| key.starts_with(&[3]))
+                .collect_vec()
+        );
         self.db.queue().clear().unwrap();
+        dbg!(
+            self.db
+                .ds
+                .iter()
+                .keys()
+                .filter_ok(|key| key.starts_with(&[3]))
+                .collect_vec()
+        );
         self.db.song_id_from_path().clear().unwrap();
 
         scan::scan_dir(&self.music_dir, |mut metadata: MetaData| {
@@ -96,10 +138,16 @@ impl System {
                     title: metadata.title,
                     artist: metadata.artist,
                     album: metadata.album,
+                    playtime: metadata.playtime,
                 })
                 .unwrap();
         })
         .await?;
+
+        self.db
+            .last_db_update()
+            .set(Some(&jiff::Timestamp::now()))
+            .wrap_err("Could not set last db update")?;
 
         Ok(())
     }
@@ -142,6 +190,7 @@ impl System {
             .collect::<Result<_, _>>()
             .wrap_err("Error loading queue from database")?;
 
+        dbg!(&queue);
         let queue = queue
             .into_iter()
             .map(|(pos, song_id)| {
@@ -238,6 +287,7 @@ impl System {
         rx
     }
 
+    #[instrument(skip(self))]
     pub fn add_to_queue(&mut self, path: &Path) -> Result<()> {
         let song_id = self
             .db
@@ -246,10 +296,17 @@ impl System {
             .wrap_err("Could not read song_id lookup table")
             .and_then(|song_id| song_id.ok_or_eyre("Path is not in song_id lookup table"))
             .with_note(|| format!("path: {}", path.display()))?;
+        dbg!("hihihihi");
         self.db
             .queue()
             .push(&song_id)
-            .wrap_err("Could not append song_id to queue")
+            .wrap_err("Could not append song_id to queue")?;
+        dbg!("hihihihi");
+        self.db.ds.flush().unwrap();
+        dbg!(self.db.queue().iter().collect_vec());
+        tracing::debug!("Adding {song_id:?} to queue");
+
+        Ok(())
     }
 
     pub fn list_all_in(&self, dir: PathBuf) -> Result<Vec<ListItem>> {
@@ -312,6 +369,54 @@ impl System {
             .ok_or_eyre("Item in the queue was not in the library")?;
         Ok(Some(PlaylistEntry::mostly_fake(0, song_id, song)))
     }
+
+    pub fn stats(&self) -> Result<Stats> {
+        #[derive(Default)]
+        struct Counter {
+            artists: HashSet<String>,
+            albums: HashSet<String>,
+            songs: usize,
+            db_playtime: Duration,
+        }
+
+        let counter = self
+            .db
+            .library()
+            .iter()
+            .fold_ok(Counter::default(), |mut counter, song| {
+                counter.artists.insert(song.artist);
+                counter.albums.insert(song.album);
+                counter.songs += 1;
+                counter.db_playtime += song.playtime;
+                counter
+            })
+            .wrap_err("Could not read items from db for counting")?;
+
+        dbg!(self.queue()?);
+
+        let playtime = self
+            .queue()
+            .wrap_err("Could not get queue")?
+            .0
+            .into_iter()
+            .map(|entry| dbg!(entry).duration)
+            .sum();
+
+        Ok(Stats {
+            artists: counter.artists.len(),
+            albums: counter.albums.len(),
+            songs: counter.songs,
+            uptime: self.up_since.elapsed(),
+            db_playtime: counter.db_playtime,
+            db_update: self
+                .db
+                .last_db_update()
+                .get()
+                .wrap_err("Could not read last db update")?
+                .unwrap_or_default(),
+            playtime,
+        })
+    }
 }
 
 #[derive(Deserialize, Serialize)]
@@ -320,4 +425,59 @@ pub struct Song {
     pub title: String,
     pub artist: String,
     pub album: String,
+    pub playtime: Duration,
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::setup_tracing;
+
+    use super::*;
+
+    #[test]
+    fn wtfwhynooo() {
+        color_eyre::install().unwrap();
+        setup_tracing();
+
+        let mut system = System::new("~/Music".into(), None).unwrap();
+        system
+            .add_to_queue(Path::new(
+                "The Sims Complete Collection/Disc 1/01 - Now Entering.mp3",
+            ))
+            .unwrap();
+
+        let queue = system.queue().unwrap();
+        let first = &queue.0[0];
+        assert!(first.file.to_string_lossy().contains("Sims"));
+    }
+
+    // #[test]
+    // fn wtfwhyyyyyy() {
+    //     let mut system = System::new("~/Music".into(), None).unwrap();
+    //     system.db.queue().push(&SongId(1)).unwrap();
+
+    //     dbg!(system.db.queue().get(0).unwrap());
+    //     dbg!(system.db.queue().iter().collect_vec());
+    // }
+}
+
+/*
+running 1 test
+[src/system.rs:414:9] system.db.queue().get(0).unwrap() = Some(
+    SongId(
+        1,
+    ),
+)
+[src/system.rs:415:9] system.db.queue().iter().collect_vec() = [
+    Ok(
+        SongId(
+            1,
+        ),
+    ),
+    Ok(
+        SongId(
+            1,
+        ),
+    ),
+]
+ */

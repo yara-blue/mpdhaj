@@ -371,7 +371,6 @@ checksum = "2a2330da5de22e8a3cb63252ce2abb30116bf5265e89c0e01bc17015ce30a476"
 [[package]]
 name = "dbstruct"
 version = "0.6.0"
-source = "git+https://github.com/dvdsk/dbstruct#5ecca3460f19f34e816ae50f7b199c15f1b21b02"
 dependencies = [
  "bincode",
  "dbstruct-derive",
@@ -384,7 +383,6 @@ dependencies = [
 [[package]]
 name = "dbstruct-derive"
 version = "0.4.0"
-source = "git+https://github.com/dvdsk/dbstruct#5ecca3460f19f34e816ae50f7b199c15f1b21b02"
 dependencies = [
  "itertools",
  "proc-macro-error",

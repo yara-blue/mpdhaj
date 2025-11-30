@@ -1,5 +1,5 @@
 use futures::FutureExt;
-use std::path::{Path, PathBuf};
+use std::{path::{Path, PathBuf}, time::Duration};
 use tokio::{
     fs::{self},
     task::spawn_blocking,
@@ -18,6 +18,7 @@ pub struct MetaData {
     pub artist: String,
     pub album: String,
     pub file: PathBuf,
+    pub playtime: Duration,
 }
 
 pub const UNKNOWN: &str = "unknown";
@@ -25,6 +26,8 @@ trait FormatScanner: Send + Sync {
     fn scan(&self, path: PathBuf) -> Result<Option<MetaData>>;
 }
 
+// TODO scanners should augment eachoter (fill leftover None fields). That way
+// the last scanner can be rodio reading the audio file duration.
 const SCANNERS: &[&dyn FormatScanner] =
     &[&lofty::Scanner::new(), &moosicbox_audiotags::Scanner::new()];
 
