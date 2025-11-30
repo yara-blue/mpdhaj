@@ -35,7 +35,7 @@ peg::parser! {
         rule stickers() -> Command
         = "todo" { todo!() }
         rule connection_settings() -> Command
-        = "todo" { todo!() }
+        = "binarylimit " n:number() { Command::BinaryLimit(n) }
         rule partitions() -> Command
         = "todo" { todo!() }
         rule audio_outputs() -> Command
@@ -46,7 +46,9 @@ peg::parser! {
         = #{|input, pos| command_without_args(input) }
 
         rule list<T>(x: rule<T>) -> Vec<T>
-          = v:(x() ** " ") {v}
+        = v:(x() ** " ") {v}
+        rule number<T: std::str::FromStr>() -> T
+        = s:$(['0'..='9']+) {? s.parse().or(Err("number")) }
     }
 }
 

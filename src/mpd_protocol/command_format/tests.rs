@@ -10,6 +10,7 @@ fn parse_commands() {
 
 #[test]
 fn parse_binary_limit() {
+    color_eyre::install().unwrap();
     assert_eq!(
         Command::parse("binarylimit 42").unwrap(),
         Command::BinaryLimit(42)
