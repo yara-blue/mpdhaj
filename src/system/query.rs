@@ -59,7 +59,7 @@ impl Song {
             Tag::Album => false,
             Tag::AlbumArtist => false,
             Tag::Artist => self.artist == needle,
-            Tag::Title => todo!(),
+            _ => todo!(),
         }
     }
 }

@@ -20,7 +20,7 @@ where
 }
 
 /// MPD represents "accurate" durations as a number with three places after the decimal.
-/// the mpd format (see [`response::format::ser`]) has been set up to serialize
+/// the mpd format (see [`response_format::ser`]) has been set up to serialize
 /// f64 floats with 3 decimals only
 pub fn duration_millis_precise<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
 where

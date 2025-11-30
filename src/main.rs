@@ -1,4 +1,3 @@
-#![allow(unused)]
 use std::sync::{Arc, Mutex};
 
 use clap::Parser;
@@ -49,7 +48,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-pub fn setup_tracing() {
+pub(crate) fn setup_tracing() {
     use tracing_subscriber::filter;
     use tracing_subscriber::fmt;
     use tracing_subscriber::prelude::*;

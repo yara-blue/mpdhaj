@@ -32,7 +32,7 @@ fn parse_idle_with_args() {
 fn parse_list_playlist_info() {
     assert_eq!(
         Command::parse(r#"listplaylistinfo "foo\"bar""#).unwrap(),
-        Command::ListPlaylistInfo(PlaylistName("foo\"bar".to_string()))
+        Command::ListPlaylistInfo(PlaylistName("foo\"bar".to_string()), None)
     );
 }
 
@@ -42,6 +42,7 @@ fn parse_list_with_group() {
         Command::parse("list Album group AlbumArtist").unwrap(),
         Command::List(List {
             tag_to_list: crate::mpd_protocol::Tag::Album,
+            query: Query::default(),
             group_by: vec![crate::mpd_protocol::Tag::AlbumArtist],
         })
     );
@@ -55,6 +56,6 @@ fn parse_findadd() {
         Command::FindAdd(Query(QueryNode::And(vec![
             QueryNode::Filter(Filter::TagEqual { tag: Tag::Artist, needle: "ABBA".to_string() }),
             QueryNode::Filter(Filter::TagEqual { tag: Tag::Album, needle: "".to_string() }), QueryNode::Filter(Filter::PathEqual("ABBA/The Singles. The First Fifty Years/34. I Still Have Faith In You.mp3'".into()))
-        ])))
+        ])), None, None, None)
     )
 }

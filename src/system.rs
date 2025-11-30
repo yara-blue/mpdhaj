@@ -3,6 +3,7 @@ use color_eyre::eyre::Context;
 use color_eyre::{Report, Result, eyre::eyre};
 use etcetera::BaseStrategy;
 use itertools::Itertools;
+use jiff::Timestamp;
 use rodio::nz;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -27,6 +28,7 @@ pub struct System {
     pub playlists: HashMap<PlaylistName, Vec<Utf8PathBuf>>,
     pub idlers: HashMap<SubSystem, Vec<mpsc::Sender<SubSystem>>>,
     pub music_dir: Utf8PathBuf,
+    pub started_at: Timestamp, // for uptime
 }
 
 impl System {
@@ -34,38 +36,7 @@ impl System {
         let dirs = etcetera::choose_base_strategy()?;
         let cache = dirs.cache_dir().join("mpdhaj").join("state.sqlite");
         let db = Connection::open(cache)?;
-        db.execute_batch(
-            "BEGIN;
-            CREATE TABLE IF NOT EXISTS songs (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                path        TEXT NOT NULL,
-                mtime       TEXT NOT NULL,
-                generation  INTEGER DEFAULT 0,
-                title       TEXT,
-                artist      TEXT,
-                album       TEXT
-                -- TODO: update as we add more tags
-                -- TODO: playcount/skipcount
-            );
-            CREATE TABLE IF NOT EXISTS state (
-                id          INTEGER PRIMARY KEY,
-                generation  INTEGER,
-                current     INTEGER,
-                head        INTEGER,
-                tail        INTEGER
-                -- TODO: persist mpd status like repeat/random/single/consume
-            );
-            INSERT OR IGNORE INTO state
-                (id, generation, current, head, tail) VALUES (0, 0, 0, 0, 0);
-            CREATE TABLE IF NOT EXISTS queue (
-                -- can't use id as primary key, need to support duplicates
-                slot    INTEGER PRIMARY KEY AUTOINCREMENT,
-                id      INTEGER,
-                next    INTEGER,
-                prev    INTEGER
-            );
-            COMMIT;",
-        )?;
+        db.execute_batch(include_str!("tables.sql"))?;
         let playlist_dir = playlist_dir.unwrap_or_else(|| music_dir.join("playlists"));
         let playlists = match playlist::load_from_dir(&playlist_dir) {
             Ok(p) => p,
@@ -80,6 +51,7 @@ impl System {
             playlists,
             playing: Default::default(),
             idlers: Default::default(),
+            started_at: Timestamp::now(),
         })
     }
 
@@ -118,11 +90,11 @@ impl System {
             .db
             .query_one("SELECT head FROM state", [], |row| row.get::<_, u32>(0))?;
         while cur != 0 {
-            let (next, id) =
-                self.db
-                    .query_one("SELECT next, id FROM queue WHERE slot = ?1", [cur], |row| {
-                        Ok((row.get::<_, u32>(0)?, row.get::<_, u32>(1)?))
-                    })?;
+            let (next, id) = self.db.query_one(
+                "SELECT next, song, id FROM queue WHERE id = ?1",
+                [cur],
+                |row| Ok((row.get::<_, u32>(0)?, (row.get::<_, u32>(1)?, row.get(2)?))),
+            )?;
             ids.push(id);
             cur = next;
         }
@@ -130,13 +102,30 @@ impl System {
         let songs = ids
             .into_iter()
             .enumerate()
-            .map(|(pos, song_id)| {
-                let song = self.song_from_id(song_id)?;
-                Ok::<_, Report>(PlaylistEntry::mostly_fake(pos, SongId(song_id), song))
+            .map(|(pos, (song_number, song_id))| {
+                let song = self.get_song(song_number)?;
+                Ok::<_, Report>(PlaylistEntry::mostly_fake(
+                    pos as u32,
+                    SongId(song_id),
+                    song,
+                ))
             })
             .collect::<Result<_, _>>()?;
 
         Ok(mpd_protocol::PlaylistInfo(songs))
+    }
+
+    pub fn queued(&self) -> Result<Option<PlaylistEntry>> {
+        let mut cur = self
+            .db
+            .query_one("SELECT head FROM state", [], |row| row.get::<_, u32>(0))?;
+        if cur == 0 {
+            return Ok(None);
+        }
+        let song = self.get_song(cur)?;
+        // TODO: keep track of pos to avoid recomputing all the time
+        let pos = 0;
+        Ok(Some(PlaylistEntry::mostly_fake(pos, SongId(cur), song)))
     }
 
     pub fn playlists(&self) -> mpd_protocol::PlaylistList {
@@ -148,7 +137,7 @@ impl System {
         mpd_protocol::PlaylistList(list)
     }
 
-    fn song_id_from_path(&self, path: &Utf8Path) -> Result<u32> {
+    fn song_number_from_path(&self, path: &Utf8Path) -> Result<u32> {
         Ok(self.db.query_one(
             "SELECT id FROM songs WHERE path = ?1",
             [path.as_str()],
@@ -156,7 +145,7 @@ impl System {
         )?)
     }
 
-    fn song_from_id(&self, id: u32) -> Result<Song> {
+    fn get_song(&self, id: u32) -> Result<Song> {
         self.db
             .query_one(
                 "SELECT path, title, artist, album FROM songs WHERE id = ?1",
@@ -179,17 +168,21 @@ impl System {
             return Ok(PlaylistInfo(Vec::new()));
         };
 
-        let song_ids: Vec<_> = paths
+        let song_numbers: Vec<_> = paths
             .iter()
-            .map(|path| self.song_id_from_path(path))
+            .map(|path| self.song_number_from_path(path))
             .collect::<Result<_, _>>()?;
 
-        let songs = song_ids
+        let songs = song_numbers
             .into_iter()
             .enumerate()
-            .map(|(pos, song_id)| {
-                let song = self.song_from_id(song_id)?;
-                Ok::<_, Report>(PlaylistEntry::mostly_fake(pos, SongId(song_id), song))
+            .map(|(pos, song_number)| {
+                let song = self.get_song(song_number)?;
+                Ok::<_, Report>(PlaylistEntry::mostly_fake(
+                    pos as u32,
+                    SongId(song_number),
+                    song,
+                ))
             })
             .collect::<Result<_, _>>()?;
 
@@ -227,7 +220,7 @@ impl System {
     }
 
     pub fn add_to_queue(&mut self, path: &Utf8Path) -> Result<()> {
-        let id = self.song_id_from_path(path)?;
+        let id = self.song_number_from_path(path)?;
         let tail = self
             .db
             .query_one("SELECT tail FROM state", [], |row| row.get::<_, u32>(0))?;

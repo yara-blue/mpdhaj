@@ -14,6 +14,7 @@ itertools = "0.14"
 jiff = { version = "0.2", features = ["serde"] }
 lofty = "0.22"
 moosicbox_audiotags = "0.1"
+notify-debouncer-full = "0.6"
 pretty_assertions = "1.4"
 rodio = { git = "https://www.github.com/RustAudio/rodio" }
 rusqlite = {version = "0.37", features = ["bundled"] } # TODO: use tokio-rusqlite

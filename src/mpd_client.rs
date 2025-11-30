@@ -200,12 +200,12 @@ pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::
         Status => {
             response_format::to_string(&system.status()).wrap_err("Failed to get system status")?
         }
-        PlaylistInfo => {
+        PlaylistInfo(pos_or_range) => {
             response_format::to_string(&system.queue().wrap_err("Failed to get current queue")?)?
         }
         ListPlayLists => response_format::to_string(&system.playlists())
             .wrap_err("Failed to get list of playlists")?,
-        ListPlaylistInfo(playlist_name) => response_format::to_string(
+        ListPlaylistInfo(playlist_name, range) => response_format::to_string(
             &system
                 .get_playlist(&playlist_name)
                 .wrap_err("Failed to get playlist")
@@ -214,15 +214,16 @@ pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::
         Clear => {
             system.clear()?;
             system.playing = PlaybackState::Stop;
-            response_format::to_string(&system.status()).wrap_err("Failed to get system status")?
+            response_format::to_string(&system.status())?
         }
         ListAll(dir) => response_format::to_string(
             &system
-                .list_all_in(&dir)
+                .list_all_in(&dir.unwrap_or_default())
                 .wrap_err("Failed to list all songs")?,
         )?,
         List(mpd_protocol::List {
             tag_to_list,
+            query,
             group_by,
         }) => {
             if !group_by.is_empty() {
@@ -242,27 +243,37 @@ pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::
                 .with_note(|| format!("song path: {song:?}"))?,
         )?,
         Volume(_volume_change) => todo!(),
-        Play => todo!(),
-        Pause => todo!(),
+        Play(pos) => {
+            // TODO: actually play
+            system.playing = PlaybackState::Play;
+            response_format::to_string(&system.status())?
+        }
+        Pause(state) => {
+            system.playing = PlaybackState::Pause;
+            response_format::to_string(&system.status())?
+        }
+        Stop => {
+            system.playing = PlaybackState::Stop;
+            response_format::to_string(&system.status())?
+        }
         Next => todo!(),
-        Prev => todo!(),
+        Previous => todo!(),
         PlayId(_pos_in_playlist) => todo!(),
-        Load(_playlist_name) => todo!(),
-        Insert(song) => todo!(),
-        Add(song) => {
+        Load(_playlist_name, range, position) => todo!(),
+        Add(song, position) => {
             system
                 .add_to_queue(&song)
                 .wrap_err("Failed to add song to queue")
                 .with_note(|| format!("song path: {song:?}"))?;
             String::new()
         }
-        Find(query) => response_format::to_string(
+        Find(query, sort, range) => response_format::to_string(
             &system
                 .handle_find(&query)
                 .wrap_err("Failed to handle find")
                 .with_note(|| format!("query: {query:?}"))?,
         )?,
-        FindAdd(query) => {
+        FindAdd(query, sort, range, position) => {
             let results = system
                 .handle_find(&query)
                 .wrap_err("Failed to handle find")
@@ -281,6 +292,7 @@ pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::
                 .wrap_err("Could not get current song")?,
         )?,
         Idle(_) | NoIdle => panic!("These should be handled in the outer loop"),
+        other => unimplemented!("{other:?}"),
     })
 }
 
