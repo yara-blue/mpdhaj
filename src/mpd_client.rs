@@ -10,11 +10,11 @@ use tokio::net::TcpListener;
 use tokio::task;
 use tracing::{debug, info, warn};
 
-use crate::mpd_protocol::{self, List, SubSystem, response_format};
+use crate::mpd_protocol::{self, PlaybackState, SubSystem, response_format};
 use crate::{mpd_protocol::Command, system::System};
 
-pub(crate) async fn handle_clients(system: Arc<std::sync::Mutex<System>>) -> Result<()> {
-    let listener = TcpListener::bind("0.0.0.0:6600").await?;
+pub(crate) async fn handle_clients(system: Arc<std::sync::Mutex<System>>, port: u16) -> Result<()> {
+    let listener = TcpListener::bind(format!("0.0.0.0:{port}")).await?;
 
     loop {
         let stream = match listener.accept().await {
@@ -109,7 +109,7 @@ async fn handle_command_list(
         if matches!(command, Command::Idle(_) | Command::NoIdle) {
             return Err(eyre!("Idle and NoIde are not allowed in command lists"));
         }
-        let response = perform_command(command, &system)?;
+        let response = perform_command(command, system)?;
         command_executed += 1;
 
         debug!("reply: {response}");
@@ -192,35 +192,38 @@ async fn acknowledge_cmd_list_entry(
 }
 
 pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::Result<String> {
-    use Command as C;
-    let mut system = system.lock().expect("No thread should ever panick");
-    Ok(match request {
-        C::BinaryLimit(_) => String::new(),
-        C::Commands => supported_command_list(),
-        C::Status => {
+    use Command::*;
+    let mut system = system.lock().expect("No thread should ever panic");
+    Ok(match &request {
+        BinaryLimit(_) => String::new(),
+        Commands => supported_command_list(),
+        Status => {
             response_format::to_string(&system.status()).wrap_err("Failed to get system status")?
         }
-        C::PlaylistInfo => {
+        PlaylistInfo(_pos_or_range) => {
             response_format::to_string(&system.queue().wrap_err("Failed to get current queue")?)?
         }
-        C::ListPlayLists => response_format::to_string(&system.playlists())
+        ListPlayLists => response_format::to_string(&system.playlists())
             .wrap_err("Failed to get list of playlists")?,
-        C::ListPlaylistInfo(playlist_name) => response_format::to_string(
+        ListPlaylistInfo(playlist_name, _range) => response_format::to_string(
             &system
-                .get_playlist(&playlist_name)
+                .get_playlist(playlist_name)
                 .wrap_err("Failed to get playlist")
                 .with_note(|| format!("playlist name: {playlist_name:?}"))?,
         )?,
-        C::PlayId(_pos_in_playlist) => todo!(),
-        C::Clear => todo!(),
-        C::Load(_playlist_name) => todo!(),
-        C::ListAll(dir) => response_format::to_string(
+        Clear => {
+            system.clear()?;
+            system.playing = PlaybackState::Stop;
+            response_format::to_string(&system.status())?
+        }
+        ListAll(dir) => response_format::to_string(
             &system
-                .list_all_in(dir)
+                .list_all_in(&dir.clone().unwrap_or_default())
                 .wrap_err("Failed to list all songs")?,
         )?,
-        C::List(List {
+        List(mpd_protocol::List {
             tag_to_list,
+            query: _query,
             group_by,
         }) => {
             if !group_by.is_empty() {
@@ -228,60 +231,84 @@ pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::
             }
 
             system
-                .list_tags(&tag_to_list)
+                .list_tag(tag_to_list)
                 .wrap_err("Failed to list tags")
                 .with_note(|| format!("Tag type: {tag_to_list}"))?
+                .join("\n")
         }
-        C::LsInfo(song) => response_format::to_string(
+        LsInfo(song) => response_format::to_string(
             &system
-                .song_info_from_path(&song)
+                .get_song_by_path(song)
                 .wrap_err("Failed to get song info")
                 .with_note(|| format!("song path: {song:?}"))?,
         )?,
-        C::Volume(_volume_change) => todo!(),
-        C::Play => todo!(),
-        C::Add(song) => {
-            system
-                .add_to_queue(&song)
+        Volume(_volume_change) => todo!(),
+        Play(_pos) => {
+            // TODO: actually play
+            system.playing = PlaybackState::Play;
+            response_format::to_string(&system.status())?
+        }
+        Pause(_state) => {
+            system.playing = PlaybackState::Pause;
+            response_format::to_string(&system.status())?
+        }
+        Stop => {
+            system.playing = PlaybackState::Stop;
+            response_format::to_string(&system.status())?
+        }
+        Next => todo!(),
+        Previous => todo!(),
+        PlayId(_pos_in_playlist) => todo!(),
+        Load(_playlist_name, _range, _position) => todo!(),
+        add @ (Add(song, position) | AddId(song, position)) => {
+            // TODO: handle add with directory (adds all recursively)
+            let id = system
+                .add_to_queue(song, position)
                 .wrap_err("Failed to add song to queue")
                 .with_note(|| format!("song path: {song:?}"))?;
-            String::new()
+            if matches!(add, Add(..)) {
+                String::new()
+            } else {
+                format!("Id: {}", id.0)
+            }
         }
-        C::Find(query) => response_format::to_string(
+        Find(query, _sort, _range) => response_format::to_string(
             &system
-                .handle_find(&query)
+                .handle_find(query)
                 .wrap_err("Failed to handle find")
                 .with_note(|| format!("query: {query:?}"))?,
         )?,
-        C::FindAdd(query) => {
+        FindAdd(query, _sort, _range, position) => {
             let results = system
-                .handle_find(&query)
+                .handle_find(query)
                 .wrap_err("Failed to handle find")
                 .with_note(|| format!("query: {query:?}"))?;
             for result in results {
                 system
-                    .add_to_queue(&result.file)
+                    .add_to_queue(&result.path, position)
                     .wrap_err("Could not add matching song to queue")
-                    .with_note(|| format!("song: {result:?}"))?
+                    .with_note(|| format!("song: {result:?}"))?;
             }
             String::new()
         }
-        C::CurrentSong => response_format::to_string(
+        CurrentSong => response_format::to_string(
             &system
                 .current_song()
                 .wrap_err("Could not get current song")?,
         )?,
-        C::Stats => {
-            response_format::to_string(&system.stats().wrap_err("Could not gather statistics")?)?
-        }
-        C::Idle(_) | C::NoIdle => panic!("These should be handled in the outer loop"),
+        Stats => todo!(), //{
+        //     response_format::to_string(&system.stats().wrap_err("Could not gather statistics")?)?
+        // }
+        Idle(_) | NoIdle => panic!("These should be handled in the outer loop"),
+        Ping => "OK".to_owned(),
+        other => unimplemented!("{other:?}"),
     })
 }
 
 fn supported_command_list() -> String {
     use strum::VariantNames;
     let mut list = Command::VARIANTS
-        .into_iter()
+        .iter()
         .map(|name| name.replace("-", ""))
         .map(|command| format!("command: {command}"))
         .join("\n");

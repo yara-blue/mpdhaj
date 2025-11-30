@@ -1,24 +1,23 @@
-use color_eyre::eyre::{Context, OptionExt};
-use color_eyre::{Report, Result, Section};
+use camino::{Utf8Path, Utf8PathBuf};
+use color_eyre::eyre::Context;
+use color_eyre::{Report, Result, eyre::eyre};
 use etcetera::BaseStrategy;
 use itertools::Itertools;
+use jiff::Timestamp;
 use rodio::nz;
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
 use strum::IntoEnumIterator;
 use tokio::sync::mpsc;
-use tracing::instrument;
+
+use std::collections::HashMap;
+use std::time::Duration;
 
 use crate::mpd_protocol::query::Query;
 use crate::mpd_protocol::{
-    self, AudioParams, FindResult, ListItem, PlayList, PlaybackState, PlaylistEntry, PlaylistId,
-    PlaylistInfo, SongId, SongNumber, Stats, SubSystem, Tag, Volume,
+    self, AudioParams, FindResult, ListItem, PlayList, PlaybackState, PlaylistEntry, PlaylistId, PlaylistInfo, Position, SongId, SongNumber, SubSystem, Tag, Volume
 };
 use crate::playlist::{self, PlaylistName};
-use crate::scan::{self, MetaData};
-use crate::util::WhatItertoolsIsMissing;
 
 mod query;
 
@@ -37,30 +36,27 @@ pub struct State {
     library: Vec<Song>,
 
     // just rebuild this on rescan
-    song_id_from_path: HashMap<PathBuf, SongId>,
+    song_id_from_path: HashMap<Utf8PathBuf, SongId>,
 
     last_db_update: Option<jiff::Timestamp>,
 }
 
 pub struct System {
-    up_since: Instant,
-    db: State,
-    playlists: HashMap<PlaylistName, Vec<PathBuf>>,
-    idlers: HashMap<SubSystem, Vec<mpsc::Sender<SubSystem>>>,
-    music_dir: PathBuf,
+    pub db: Connection,
+    pub playing: PlaybackState,
+    pub playlists: HashMap<PlaylistName, Vec<Utf8PathBuf>>,
+    pub idlers: HashMap<SubSystem, Vec<mpsc::Sender<SubSystem>>>,
+    pub music_dir: Utf8PathBuf,
+    #[allow(unused)]
+    pub started_at: Timestamp, // for uptime
 }
 
 impl System {
-    pub fn new(music_dir: PathBuf, playlist_dir: Option<PathBuf>) -> Result<Self> {
+    pub fn new(music_dir: Utf8PathBuf, playlist_dir: Option<Utf8PathBuf>) -> Result<Self> {
         let dirs = etcetera::choose_base_strategy()?;
-        let cache = dirs.cache_dir().join("mpdhaj").join("database");
-        let state = State::open_path(&cache)
-            .wrap_err("Could not open db")
-            .with_note(|| format!("path: {}", cache.display()))
-            .suggestion(
-                "The database format probably changed, \
-                try removing the database folder",
-            )?;
+        let cache = dirs.cache_dir().join("mpdhaj").join("state.sqlite");
+        let db = Connection::open(cache)?;
+        db.execute_batch(include_str!("tables.sql"))?;
         let playlist_dir = playlist_dir.unwrap_or_else(|| music_dir.join("playlists"));
         let playlists = match playlist::load_from_dir(&playlist_dir) {
             Ok(p) => p,
@@ -69,87 +65,36 @@ impl System {
                 Default::default()
             }
         };
-        dbg!(state.queue().len());
-        dbg!(
-            state
-                .ds
-                .iter()
-                .keys()
-                .filter_ok(|key| key.starts_with(&[3]))
-                .collect_vec()
-        );
+        // dbg!(state.queue().len());
+        // dbg!(
+        //     state
+        //         .ds
+        //         .iter()
+        //         .keys()
+        //         .filter_ok(|key| key.starts_with(&[3]))
+        //         .collect_vec()
+        // );
 
-        dbg!(::dbstruct::traits::data_store::Ordered::get_lt(
-            &state.ds,
-            &::dbstruct::wrapper::VecPrefixed::max(3),
-        )?
-        .map(|(key, _): (::dbstruct::wrapper::VecPrefixed, SongId)| dbg!(key))
-        .filter(|key| key.prefix() == 3)
-        .map(|key| key.index() + 1) // a vecs len is index + 1
-        .unwrap_or(0));
+        // dbg!(
+        //     ::dbstruct::traits::data_store::Ordered::get_lt(
+        //         &state.ds,
+        //         &::dbstruct::wrapper::VecPrefixed::max(3),
+        //     )?
+        //     .map(|(key, _): (::dbstruct::wrapper::VecPrefixed, SongId)| dbg!(key))
+        //     .filter(|key| key.prefix() == 3)
+        //     .map(|key| key.index() + 1) // a vecs len is index + 1
+        //     .unwrap_or(0)
+        // );
 
         // state.queue().clear().unwrap();
         Ok(System {
-            up_since: Instant::now(),
-            db: state,
-            playlists,
-            idlers: Default::default(),
+            db,
             music_dir,
+            playlists,
+            playing: Default::default(),
+            idlers: Default::default(),
+            started_at: Timestamp::now(),
         })
-    }
-
-    pub async fn scan(&mut self) -> Result<()> {
-        // Song ids will change, reset db
-        dbg!(self.db.queue().len());
-        dbg!(
-            self.db
-                .ds
-                .iter()
-                .keys()
-                .filter_ok(|key| key.starts_with(&[3]))
-                .collect_vec()
-        );
-        self.db.queue().clear().unwrap();
-        dbg!(
-            self.db
-                .ds
-                .iter()
-                .keys()
-                .filter_ok(|key| key.starts_with(&[3]))
-                .collect_vec()
-        );
-        self.db.song_id_from_path().clear().unwrap();
-
-        scan::scan_dir(&self.music_dir, |mut metadata: MetaData| {
-            metadata.file = metadata
-                .file
-                .strip_prefix(&self.music_dir)
-                .unwrap()
-                .to_path_buf();
-
-            self.db
-                .song_id_from_path()
-                .insert(&metadata.file, &SongId(self.db.library().len() as u32))
-                .unwrap();
-            self.db
-                .library()
-                .push(&Song {
-                    file: metadata.file,
-                    title: metadata.title,
-                    artist: metadata.artist,
-                    album: metadata.album,
-                    playtime: metadata.playtime,
-                })
-                .unwrap();
-        })
-        .await?;
-
-        self.db
-            .last_db_update()
-            .set(Some(&jiff::Timestamp::now()))
-            .wrap_err("Could not set last db update")?;
-
-        Ok(())
     }
 
     pub fn status(&self) -> mpd_protocol::Status {
@@ -182,32 +127,29 @@ impl System {
     }
 
     pub fn queue(&self) -> Result<mpd_protocol::PlaylistInfo> {
-        let queue: Vec<_> = self
-            .db
-            .queue()
-            .iter()
-            .enumerate_ok()
-            .collect::<Result<_, _>>()
-            .wrap_err("Error loading queue from database")?;
+        let mut stmt = self.db.prepare(
+            "SELECT q.id, q.position, s.path, s.title, s.artist, s.album
+             FROM queue q
+             JOIN songs s ON s.rowid = q.song
+             ORDER BY q.position",
+        )?;
 
-        dbg!(&queue);
-        let queue = queue
-            .into_iter()
-            .map(|(pos, song_id)| {
-                let song = self
-                    .db
-                    .library()
-                    .get(song_id.0 as usize)
-                    .wrap_err("Could not get song from database")?
-                    .ok_or_eyre("Song id in queue was not found in library")
-                    .with_note(|| format!("Song id: {song_id:?}"))?;
+        let songs = stmt
+            .query_and_then([], |row| {
+                let song_id: u32 = row.get(0)?;
+                let position: u32 = row.get(1)?;
+                let song = Song {
+                    path: row.get::<_, String>(2)?.into(),
+                    title: row.get(3)?,
+                    artist: row.get(4)?,
+                    album: row.get(5)?,
+                    ..Default::default()
+                };
+                Ok::<_, Report>(PlaylistEntry::mostly_fake(position, SongId(song_id), song))
+            })?
+            .collect::<Result<_, _>>()?;
 
-                Ok::<_, Report>(PlaylistEntry::mostly_fake(pos, song_id, song))
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .wrap_err("Failed to resolve queue")?;
-
-        Ok(mpd_protocol::PlaylistInfo(queue))
+        Ok(mpd_protocol::PlaylistInfo(songs))
     }
 
     pub fn playlists(&self) -> mpd_protocol::PlaylistList {
@@ -219,57 +161,73 @@ impl System {
         mpd_protocol::PlaylistList(list)
     }
 
+    fn song_number_from_path(&self, path: &Utf8Path) -> Result<u32> {
+        Ok(self.db.query_one(
+            "SELECT rowid FROM songs WHERE path = ?1",
+            [path.as_str()],
+            |row| row.get(0),
+        )?)
+    }
+
+    fn get_song(&self, id: u32) -> Result<Song> {
+        self.db
+            .query_one(
+                "SELECT path, title, artist, album FROM songs WHERE id = ?1",
+                [id],
+                |row| {
+                    Ok(Song {
+                        path: row.get::<_, String>(0)?.into(),
+                        title: row.get(1)?,
+                        artist: row.get(2)?,
+                        album: row.get(3)?,
+                        ..Default::default()
+                    })
+                },
+            )
+            .context("Couldn't find song in database: {id}")
+    }
+
+    pub fn get_song_by_path(&self, path: &Utf8Path) -> Result<Song> {
+        Ok(self.db.query_one(
+            "SELECT title, artist, album FROM songs WHERE path = ?1",
+            [path.as_str()],
+            |r| {
+                Ok(Song {
+                    path: path.to_owned(),
+                    title: r.get(0)?,
+                    artist: r.get(1)?,
+                    album: r.get(2)?,
+                    ..Default::default()
+                })
+            },
+        )?)
+    }
+
     pub fn get_playlist(&self, name: &PlaylistName) -> Result<mpd_protocol::PlaylistInfo> {
         let Some(paths) = self.playlists.get(name) else {
             tracing::warn!("No playlist found with name: {name:?}");
             return Ok(PlaylistInfo(Vec::new()));
         };
 
-        let song_ids: Vec<_> = paths
-            .into_iter()
-            .map(|path| {
-                self.db
-                    .song_id_from_path()
-                    .get(path)
-                    .wrap_err("Could not read song_id lookup table")
-                    .and_then(|song_id| song_id.ok_or_eyre("Path is not in song_id lookup table"))
-                    .with_note(|| format!("path: {}", path.display()))
-            })
+        let song_numbers: Vec<_> = paths
+            .iter()
+            .map(|path| self.song_number_from_path(path))
             .collect::<Result<_, _>>()?;
 
-        let songs = song_ids
+        let songs = song_numbers
             .into_iter()
             .enumerate()
-            .map(|(pos, song_id)| {
-                let song = self
-                    .db
-                    .library()
-                    .get(song_id.0 as usize)
-                    .wrap_err("Could not get song from database")?
-                    .ok_or_eyre("Song id in playlist was not found in library")
-                    .with_note(|| format!("Song id: {song_id:?}"))?;
-
-                Ok::<_, Report>(PlaylistEntry::mostly_fake(pos, song_id, song))
+            .map(|(pos, song_number)| {
+                let song = self.get_song(song_number)?;
+                Ok::<_, Report>(PlaylistEntry::mostly_fake(
+                    pos as u32,
+                    SongId(song_number),
+                    song,
+                ))
             })
             .collect::<Result<_, _>>()?;
 
         Ok(mpd_protocol::PlaylistInfo(songs))
-    }
-
-    pub fn song_info_from_path(&self, path: &Path) -> Result<Song> {
-        let song_id = self
-            .db
-            .song_id_from_path()
-            .get(path)
-            .wrap_err("Could not read song_id lookup table")
-            .and_then(|song_id| song_id.ok_or_eyre("Path is not in song_id lookup table"))
-            .with_note(|| format!("path: {}", path.display()))?;
-        self.db
-            .library()
-            .get(song_id.0 as usize)
-            .wrap_err("Could not get song from database")?
-            .ok_or_eyre("Song id in playlist was not found in library")
-            .with_note(|| format!("Song id: {song_id:?}"))
     }
 
     pub fn idle(&mut self, mut subsystems: Vec<SubSystem>) -> mpsc::Receiver<SubSystem> {
@@ -287,64 +245,59 @@ impl System {
         rx
     }
 
-    #[instrument(skip(self))]
-    pub fn add_to_queue(&mut self, path: &Path) -> Result<()> {
-        let song_id = self
-            .db
-            .song_id_from_path()
-            .get(path)
-            .wrap_err("Could not read song_id lookup table")
-            .and_then(|song_id| song_id.ok_or_eyre("Path is not in song_id lookup table"))
-            .with_note(|| format!("path: {}", path.display()))?;
-        dbg!("hihihihi");
-        self.db
-            .queue()
-            .push(&song_id)
-            .wrap_err("Could not append song_id to queue")?;
-        dbg!("hihihihi");
-        self.db.ds.flush().unwrap();
-        dbg!(self.db.queue().iter().collect_vec());
-        tracing::debug!("Adding {song_id:?} to queue");
-
-        Ok(())
-    }
-
-    pub fn list_all_in(&self, dir: PathBuf) -> Result<Vec<ListItem>> {
-        let mut paths = HashSet::new();
-        for path in self
-            .db
-            .library()
-            .iter()
-            .map_ok(|song| song.file)
-            .filter_ok(|path| path.starts_with(&dir))
-        {
-            let path = path.wrap_err("Error reading all library items from db")?;
-            // annoyingly mpd's list all includes dirs... we dont store those
-            // so create theme from the file paths here.
-            paths.extend(path.parent().map(Path::to_owned).map(ListItem::Directory));
-            paths.insert(ListItem::File(path));
+    pub fn add_to_queue(&self, path: &Utf8Path, position: &Option<Position>) -> Result<SongId> {
+        let song = self.song_number_from_path(path)?;
+        if let Some(pos) = position {
+            let pos: u32 = match pos {
+                Position::Absolute(pos) => *pos,
+                Position::Relative(offset) => {
+                    // TODO: handle +0/-0 correctly. probably just increment positive values by 1 at parse time
+                    let current = self
+                        .db
+                        .query_one("SELECT current FROM state", [], |row| row.get::<_, u32>(0))?;
+                    if -offset >= current as i32 {
+                        return Err(eyre!(
+                            "Position {offset} is invalid, current position is {current}"
+                        ));
+                    }
+                    (current as i32 + offset) as u32
+                }
+            };
+            self.db.execute(
+                "UPDATE state SET position = position + 1 WHERE position >= ?1",
+                [pos],
+            )?;
+            let mut stmt = self
+                .db
+                .prepare("INSERT INTO queue (id, prev, next) VALUES (?1, ?2, 0)")?;
+            Ok(stmt.insert([song, pos]).map(|n| SongId(n as u32))?)
+        } else {
+            let mut stmt = self.db.prepare(
+                "INSERT INTO queue (song, position)
+                    VALUES (?1, COALESCE((SELECT MAX(position) FROM queue), 0) + 1)",
+            )?;
+            Ok(stmt.insert([song]).map(|n| SongId(n as u32))?)
         }
-        Ok(paths.into_iter().collect_vec())
     }
 
-    pub fn list_tags(&self, tag_to_list: &Tag) -> Result<String> {
-        let mut list = self
-            .db
-            .library()
-            .iter()
-            .map_ok(|song| match tag_to_list {
-                Tag::Album => song.album,
-                Tag::AlbumArtist => "todo".to_string(),
-                Tag::Artist => song.artist,
-            })
-            .collect::<Result<HashSet<_>, _>>()
-            .wrap_err("Database error while iterating over library")?
-            .into_iter()
-            .sorted_unstable()
-            .map(|tag_value| format!("{tag_to_list}: {tag_value}"))
-            .join("\n");
-        list.push('\n');
-        Ok(list)
+    pub fn list_all_in(&self, dir: &Utf8Path) -> Result<Vec<ListItem>> {
+        let mut stmt = self.db.prepare(&format!(
+            "SELECT path FROM songs WHERE path LIKE '{}%'",
+            dir.as_str()
+        ))?;
+        stmt.query_and_then([], |row| {
+            Result::Ok(ListItem::File(row.get::<_, String>(0)?.into()))
+        })?
+        .collect::<Result<Vec<_>, Report>>()
+    }
+
+    pub fn list_tag(&self, tag_to_list: &Tag) -> Result<Vec<String>> {
+        let mut stmt = self.db.prepare("SELECT DISTINCT ?1 FROM songs")?;
+        Ok(stmt
+            .query_and_then([tag_to_list.to_string().to_lowercase()], |row| {
+                row.get::<_, String>(0)
+            })?
+            .collect::<Result<Vec<_>, _>>()?)
     }
 
     pub fn handle_find(&self, query: &Query) -> Result<Vec<FindResult>> {
@@ -352,80 +305,132 @@ impl System {
     }
 
     pub fn current_song(&self) -> Result<Option<PlaylistEntry>> {
-        let Some(song_id) = self
+        let Ok(pos): Result<u32, _> = self
             .db
-            .queue()
-            .get(0)
-            .wrap_err("Could not get to item in queue")?
+            .query_one("SELECT current FROM state", [], |row| row.get(0))
         else {
             return Ok(None);
         };
-
-        let song = self
-            .db
-            .library()
-            .get(song_id.0 as usize)
-            .wrap_err("Could not get current song from library")?
-            .ok_or_eyre("Item in the queue was not in the library")?;
-        Ok(Some(PlaylistEntry::mostly_fake(0, song_id, song)))
-    }
-
-    pub fn stats(&self) -> Result<Stats> {
-        #[derive(Default)]
-        struct Counter {
-            artists: HashSet<String>,
-            albums: HashSet<String>,
-            songs: usize,
-            db_playtime: Duration,
+        if pos == 0 {
+            return Ok(None);
         }
-
-        let counter = self
-            .db
-            .library()
-            .iter()
-            .fold_ok(Counter::default(), |mut counter, song| {
-                counter.artists.insert(song.artist);
-                counter.albums.insert(song.album);
-                counter.songs += 1;
-                counter.db_playtime += song.playtime;
-                counter
-            })
-            .wrap_err("Could not read items from db for counting")?;
-
-        dbg!(self.queue()?);
-
-        let playtime = self
-            .queue()
-            .wrap_err("Could not get queue")?
-            .0
-            .into_iter()
-            .map(|entry| dbg!(entry).duration)
-            .sum();
-
-        Ok(Stats {
-            artists: counter.artists.len(),
-            albums: counter.albums.len(),
-            songs: counter.songs,
-            uptime: self.up_since.elapsed(),
-            db_playtime: counter.db_playtime,
-            db_update: self
-                .db
-                .last_db_update()
-                .get()
-                .wrap_err("Could not read last db update")?
-                .unwrap_or_default(),
-            playtime,
-        })
+        let Ok((song, id)) = self.db.query_one(
+            "SELECT song, id FROM queue WHERE position = ?1",
+            [pos],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ) else {
+            return Err(eyre!("Couldn't find the currently song in the queue {pos}"));
+        };
+        let song = self.get_song(song)?;
+        Ok(Some(PlaylistEntry::mostly_fake(0, SongId(id), song)))
     }
+
+    pub fn clear(&self) -> Result<()> {
+        self.db.execute_batch(
+            "BEGIN
+            UPDATE state SET current = 0;
+            DELETE FROM queue;
+            COMMIT;",
+        )?;
+        Ok(())
+    }
+
+    // pub fn stats(&self) -> Result<Stats> {
+    //     #[derive(Default)]
+    //     struct Counter {
+    //         artists: HashSet<String>,
+    //         albums: HashSet<String>,
+    //         songs: usize,
+    //         db_playtime: Duration,
+    //     }
+
+    //     let counter = self
+    //         .db
+    //         .library()
+    //         .iter()
+    //         .fold_ok(Counter::default(), |mut counter, song| {
+    //             counter.artists.insert(song.artist);
+    //             counter.albums.insert(song.album);
+    //             counter.songs += 1;
+    //             counter.db_playtime += song.playtime;
+    //             counter
+    //         })
+    //         .wrap_err("Could not read items from db for counting")?;
+
+    //     dbg!(self.queue()?);
+
+    //     let playtime = self
+    //         .queue()
+    //         .wrap_err("Could not get queue")?
+    //         .0
+    //         .into_iter()
+    //         .map(|entry| dbg!(entry).duration)
+    //         .sum();
+
+    //     Ok(Stats {
+    //         artists: counter.artists.len(),
+    //         albums: counter.albums.len(),
+    //         songs: counter.songs,
+    //         uptime: self.up_since.elapsed(),
+    //         db_playtime: counter.db_playtime,
+    //         db_update: self
+    //             .db
+    //             .last_db_update()
+    //             .get()
+    //             .wrap_err("Could not read last db update")?
+    //             .unwrap_or_default(),
+    //         playtime,
+    //     })
+    // }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Hash, Default)]
 pub struct Song {
-    pub file: PathBuf,
-    pub title: String,
-    pub artist: String,
-    pub album: String,
+    pub path: Utf8PathBuf,
+    pub mtime: Timestamp,
+    pub generation: u64,
+
+    pub play_count: u32,
+    pub skip_count: u32,
+    pub date_added: Timestamp,
+
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub artist_sort: Option<String>,
+    pub album: Option<String>,
+    pub album_sort: Option<String>,
+    pub album_artist: Option<String>,
+    pub album_artist_sort: Option<String>,
+    pub title_sort: Option<String>,
+    pub track: Option<u8>,
+    pub name: Option<String>,
+    pub genre: Option<String>,
+    pub mood: Option<String>,
+    pub date: Option<String>,
+    pub original_date: Option<String>,
+    pub composer: Option<String>,
+    pub composer_sort: Option<String>,
+    pub performer: Option<String>,
+    pub conductor: Option<String>,
+    pub work: Option<String>,
+    pub ensemble: Option<String>,
+    pub movement: Option<String>,
+    pub movement_number: Option<String>,
+    pub show_movement: Option<bool>,
+    pub location: Option<String>,
+    pub grouping: Option<String>,
+    pub comment: Option<String>,
+    pub disc: Option<u8>,
+    pub label: Option<String>,
     pub playtime: Duration,
+
+    pub musicbrainz_artist_id: Option<String>,
+    pub musicbrainz_album_id: Option<String>,
+    pub musicbrainz_album_artist_id: Option<String>,
+    pub musicbrainz_track_id: Option<String>,
+    pub musicbrainz_releasegroup_id: Option<String>,
+    pub musicbrainz_release_track_i: Option<String>,
+    pub musicbrainz_work_id: Option<String>,
 }
 
 #[cfg(test)]

@@ -1,22 +1,216 @@
 pub mod command_format;
+#[allow(unused)]
 pub mod query;
 pub mod response_format;
 
-use std::{path::PathBuf, time::Duration};
+use std::time::Duration;
 
+use camino::Utf8PathBuf;
 use color_eyre::{Section, eyre::Context};
 use jiff::Timestamp;
 use rodio::{ChannelCount, SampleRate, nz};
 use serde::{Deserialize, Serialize};
-use strum::EnumString;
 use tracing::instrument;
 
 use crate::{mpd_protocol::query::Query, playlist::PlaylistName};
 
-pub const VERSION: &'static str = "0.24.4";
+pub const VERSION: &str = "0.24.4";
+
+// TODO: in general these should be using URIs instead of Utf8PathBuf
+
+/// see <https://mpd.readthedocs.io/en/stable/protocol.html#command-reference>
+#[derive(Debug, Deserialize, strum_macros::VariantNames, PartialEq)]
+#[strum(serialize_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum Command {
+    // Query Status:
+    ClearError,
+    CurrentSong,
+    Idle(Vec<SubSystem>),
+    NoIdle,
+    Status,
+    Stats,
+
+    // Playback Options:
+    Consume(ConsumeState),
+    Crossfade(u32), // seconds
+    MixRampDB(f32),
+    MixRampDelay(u32), // seconds
+    Random(bool),
+    Repeat(bool),
+    SetVol(i8),
+    GetVol,
+    Single(bool),
+    ReplayGainMode(ReplayGainMode),
+    ReplayGainStatus,
+    Volume(VolumeChange),
+
+    // Control Playback:
+    Next,
+    Pause(Option<bool>), // 1 = pause, 0 = resume, None = toggle
+    Play(Option<PosInPlaylist>),
+    PlayId(Option<SongId>), // weird that this is optional
+    Previous,
+    Seek(PosInPlaylist, f32),
+    SeekId(SongId, f32),
+    SeekCur(TimeOrOffset),
+    Stop,
+
+    // Manipulate the Queue:
+    /// Add an item to the queue
+    Add(Utf8PathBuf, Option<Position>),
+    AddId(Utf8PathBuf, Option<Position>),
+    /// Remove all items from the Queue
+    Clear,
+    Delete(Option<PosOrRange>),
+    DeleteId(SongId),
+    Move(Option<PosOrRange>, Position),
+    MoveId(SongId, Position),
+    Playlist, // deprecated
+    PlaylistFind(Query, Option<Sort>, Option<Range>),
+    PlaylistId(Option<SongId>),
+    PlaylistInfo(Option<PosOrRange>),
+    PlaylistSearch(Query, Option<Sort>, Option<Range>),
+    PlChanges(u32, Option<Range>),
+    PlChangesPosId(u32, Option<Range>),
+    Prio(u8, Vec<Range>),
+    PrioId(u8, Vec<SongId>),
+    RangeId(SongId, Option<FloatRange>),
+    Shuffle(Option<Range>),
+    Swap(PosInPlaylist, PosInPlaylist), // TODO: can these be relative?
+    SwapId(SongId, SongId),
+    AddTagId(SongId, Tag, String),
+    ClearTagId(SongId, Tag),
+
+    // Manipulate Playlists:
+    ListPlaylist(PlaylistName, Option<Range>),
+    ListPlaylistInfo(PlaylistName, Option<Range>),
+    SearchPlaylist(PlaylistName, Query, Option<Range>),
+    ListPlayLists,
+    Load(PlaylistName, Option<Range>, Option<Position>),
+    PlaylistAdd(PlaylistName, Utf8PathBuf, Option<PosInPlaylist>),
+    PlaylistClear(PlaylistName),
+    PlaylistDelete(PlaylistName, PosOrRange), // pos can't be relative
+    PlaylistLength(PlaylistName),
+    PlaylistMove(PlaylistName, Option<PosOrRange>, PosInPlaylist), // pos can't be relative
+    Rename(PlaylistName, PlaylistName),
+    Rm(PlaylistName),
+    Save(PlaylistName, Option<PlaylistSaveMode>),
+
+    // Interact with database:
+    AlbumArt(Utf8PathBuf, u64), // offset in bytes
+    Count(Query, Option<Tag>),  // TODO: the group field here is weird, query can be optional?
+    GetFingerprint(Utf8PathBuf),
+    Find(Query, Option<Sort>, Option<Range>),
+    FindAdd(Query, Option<Sort>, Option<Range>, Option<Position>),
+    List(List),
+    /// List everything in this dir
+    ListAll(Option<Utf8PathBuf>),
+    ListAllInfo(Option<Utf8PathBuf>),
+    ListFiles(Utf8PathBuf),
+    /// Mpd supports URI's here we only play files though so we use a path.
+    LsInfo(Utf8PathBuf),
+    ReadComments(Utf8PathBuf),
+    ReadPicture(Utf8PathBuf, u64), // offset in bytes
+    Search(Query, Option<Sort>, Option<Range>),
+    SearchAdd(Query, Option<Sort>, Option<Range>, Option<Position>),
+    SearchAddPl(
+        PlaylistName,
+        Query,
+        Option<Sort>,
+        Option<Range>,
+        Option<Position>,
+    ),
+    SearchCount(Query, Option<Tag>),
+    Update(Option<Utf8PathBuf>),
+    Rescan(Option<Utf8PathBuf>),
+
+    // Mounts and Neighbors:
+    Mount(Utf8PathBuf, Utf8PathBuf),
+    Unmount(Utf8PathBuf),
+    ListMounts,
+    ListNeighbors,
+
+    // Stickers:
+    StickerGet(StickerType, Utf8PathBuf, String),
+    StickerSet(StickerType, Utf8PathBuf, String, String),
+    StickerInc(StickerType, Utf8PathBuf, String, String),
+    StickerDec(StickerType, Utf8PathBuf, String, String),
+    StickerDelete(StickerType, Utf8PathBuf, Option<String>),
+    StickerList(StickerType, Utf8PathBuf),
+    StickerFind(
+        StickerType,
+        Utf8PathBuf,
+        String,
+        Option<Sort>,
+        Option<Range>,
+    ),
+    StickerSearch(
+        StickerType,
+        Utf8PathBuf,
+        String,
+        Operator,
+        String,
+        Option<Sort>,
+        Option<Range>,
+    ),
+    StickerNames,
+    StickerTypes,
+    StickerNamesTypes(Option<StickerType>),
+
+    // Connection Settings:
+    Close,
+    Kill,
+    Password(String),
+    Ping,
+    BinaryLimit(u64),
+    TagTypes,
+    TagTypesDisable(Vec<String>),
+    TagTypesEnable(Vec<String>),
+    TagTypesClear,
+    TagTypesAll,
+    TagTypesAvailable,
+    TagTypesReset(Vec<String>),
+    Protocol,
+    ProtocolDisable(Vec<String>),
+    ProtocolEnable(Vec<String>),
+    ProtocolClear,
+    ProtocolAll,
+    ProtocolAvailable,
+
+    // Partitions:
+    Partition(String),
+    ListPartitions,
+    NewPartition(String),
+    DelPartition(String),
+    MoveOutput(String),
+
+    //Audio Outputs:
+    DisableOutput(u32),
+    EnableOutput(u32),
+    ToggleOutput(u32),
+    Outputs,
+    OutputSet(u32, String, String),
+
+    // Reflection:
+    Config,
+    Commands,
+    NotCommands,
+    UrlHandlers,
+    Decoders,
+
+    // Client to client:
+    // omg you can implement a chat client with MPD?! you love to see it...
+    // imagine sending cute little messages to your friends using the
+    // same server... wow that's gay.
+    Subscribe(ChannelName),
+    Unsubscribe(ChannelName),
+    Channels,
+    ReadMessages,
+    SendMessage(ChannelName, String),
+}
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Hash, strum::EnumIter)]
-#[serde(rename_all = "snake_case")]
 pub enum SubSystem {
     /// the song database has been modified after update.
     Database,
@@ -48,55 +242,55 @@ pub enum SubSystem {
     Mount,
 }
 
-#[derive(Debug, Deserialize, EnumString, strum_macros::VariantNames, PartialEq, Eq)]
-#[strum(serialize_all = "lowercase")]
-#[serde(rename_all = "lowercase")]
-pub enum Command {
-    BinaryLimit(usize),
-    Commands,
-    Status,
-    PlaylistInfo,
-    ListPlayLists,
-    Idle(Vec<SubSystem>),
-    NoIdle,
-    ListPlaylistInfo(PlaylistName),
-    PlayId(PosInPlaylist),
-    /// Remove all items from the Queue
-    Clear,
-    Load(PlaylistName),
-    /// Mpd supports URI's here we only play files though so we use a path.
-    LsInfo(PathBuf),
-    Volume(VolumeChange),
-    /// Unpause
-    Play,
-    /// Add an item to the queue
-    Add(PathBuf),
-    List(List),
-    /// List everything in this dir
-    ListAll(PathBuf),
-    Find(Query),
-    FindAdd(Query),
-    CurrentSong,
-    /// Returns some statistics like number of songs
-    Stats,
-}
-
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct List {
     // NOTE we can not parse mpd filters yet
     pub tag_to_list: Tag,
+    pub query: Query,
     pub group_by: Vec<Tag>,
 }
 
-/// full list here: https://mpd.readthedocs.io/en/latest/protocol.html#tags
+/// see <https://mpd.readthedocs.io/en/stable/protocol.html#tags>
 #[derive(
-    Debug, Default, Deserialize, Serialize, strum_macros::Display, PartialEq, Eq, Clone, Copy,
+    Deserialize, Serialize, strum_macros::Display, Debug, Default, PartialEq, Eq, Clone, Copy,
 )]
 pub enum Tag {
     #[default]
-    Album,
-    AlbumArtist,
     Artist,
+    ArtistSort,
+    Album,
+    AlbumSort,
+    AlbumArtist,
+    AlbumArtistSort,
+    Title,
+    TitleSort,
+    Track,
+    Name,
+    Genre,
+    Mood,
+    Date,
+    OriginalDate,
+    Composer,
+    ComposerSort,
+    Performer,
+    Conductor,
+    Work,
+    Ensemble,
+    Movement,
+    MovementNumber,
+    ShowMovement,
+    Location,
+    Grouping,
+    Comment,
+    Disc,
+    Label,
+    MusicbrainzArtistId,
+    MusicbrainzAlbumId,
+    MusicbrainzAlbumArtistId,
+    MusicbrainzTrackId,
+    MusicbrainzReleasegroupId,
+    MusicbrainzReleaseTrackId,
+    MusicbrainzWorkId,
 }
 
 impl Command {
@@ -142,12 +336,13 @@ impl Volume {
             panic!("Volume value must be between 0 and 101")
         }
     }
+    #[allow(unused)]
     pub fn get(&self) -> u8 {
         self.0
     }
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SongId(pub u32);
 #[derive(Debug, Serialize)]
 pub struct SongNumber(pub u32);
@@ -155,11 +350,11 @@ pub struct SongNumber(pub u32);
 #[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PosInPlaylist(u32);
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
 pub enum PlaybackState {
     Play,
     Pause,
+    #[default]
     Stop,
 }
 
@@ -167,7 +362,7 @@ pub enum PlaybackState {
 #[derive(Debug, Serialize)]
 pub struct AudioParams {
     pub samplerate: SampleRate,
-    pub bits: usize,
+    pub bits: u64,
     pub channels: ChannelCount,
 }
 
@@ -178,7 +373,7 @@ pub struct PlaylistInfo(pub Vec<PlaylistEntry>);
 #[serde(rename_all = "PascalCase")]
 pub struct PlaylistEntry {
     #[serde(rename = "file")]
-    pub file: PathBuf,
+    path: Utf8PathBuf,
     #[serde(rename = "Last-Modified")]
     last_modified: jiff::Timestamp, // as 2025-06-15T22:06:58Z
     added: jiff::Timestamp, // as 2025-06-15T22:06:58Z
@@ -190,14 +385,14 @@ pub struct PlaylistEntry {
     title: String,
     album: String,
     /// the decimal track number within the album.
-    track: usize,
+    track: u64,
     /// Release date usually 4 digit year
     date: String,
     /// the music genre
     genre: Option<String>,
     /// the name of the label or publisher
     label: String,
-    disc: Option<usize>,
+    disc: Option<u64>,
     #[serde(serialize_with = "response_format::duration_millis_precise")]
     #[serde(rename = "duration")]
     pub duration: Duration,
@@ -207,31 +402,32 @@ pub struct PlaylistEntry {
 
 #[derive(Serialize, Debug, Hash, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
+// TODO: check with yara, it doesn't seem to return directories on my machine? maybe mpc filters them out?
 pub enum ListItem {
-    Directory(PathBuf),
-    File(PathBuf),
+    #[allow(unused)]
+    Directory(Utf8PathBuf),
+    File(Utf8PathBuf),
 }
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "PascalCase")]
 pub struct FindResult {
     #[serde(rename = "file")]
-    pub file: PathBuf,
+    pub path: Utf8PathBuf,
     #[serde(rename = "Last-Modified")]
     pub last_modified: jiff::Timestamp,
     pub added: jiff::Timestamp,
     #[serde(serialize_with = "response_format::audio_params")]
     pub format: AudioParams,
     #[serde(serialize_with = "response_format::duration_millis_precise")]
-    #[serde(rename = "duration")]
     pub duration: Duration,
 }
 
 impl PlaylistEntry {
     /// almost all fields are todo!
-    pub fn mostly_fake(pos: usize, id: SongId, song: crate::system::Song) -> Self {
+    pub fn mostly_fake(pos: u32, id: SongId, song: crate::system::Song) -> Self {
         Self {
-            file: song.file,
+            path: song.path,
             last_modified: Timestamp::constant(0, 0),
             added: Timestamp::constant(0, 0),
             format: AudioParams {
@@ -239,20 +435,17 @@ impl PlaylistEntry {
                 bits: 16,
                 channels: nz!(42),
             },
-            artist: song.artist,
+            artist: song.artist.unwrap_or("unknown".to_owned()),
             album_artist: "todo".to_string(),
-            title: song.title,
-            album: "todo".to_string(),
+            title: song.title.unwrap_or("unknown".to_owned()),
+            album: song.album.unwrap_or("unknown".to_owned()),
             track: 42,
             date: "todo".to_string(),
             genre: None,
             label: "todo".to_string(),
             disc: None,
             duration: song.playtime,
-            pos: PosInPlaylist(
-                pos.try_into()
-                    .expect("You should not have 4 billion soungs"),
-            ),
+            pos: PosInPlaylist(pos),
             id,
         }
     }
@@ -274,7 +467,7 @@ pub struct Status {
     pub partition: String,
     pub volume: Volume,
     pub playlist: PlaylistId,
-    pub playlistlength: usize,
+    pub playlistlength: u64,
     pub state: PlaybackState,
     pub lastloadedplaylist: Option<PlaylistName>,
     #[serde(serialize_with = "response_format::duration_seconds")]
@@ -283,7 +476,7 @@ pub struct Status {
     pub songid: SongId,
     #[serde(serialize_with = "response_format::duration_millis_precise")]
     pub elapsed: Duration,
-    pub bitrate: usize,
+    pub bitrate: u64,
     /// Duration of the current song in seconds
     #[serde(serialize_with = "response_format::duration_millis_precise")]
     pub duration: Duration,
@@ -307,4 +500,97 @@ pub struct Stats {
     pub db_update: jiff::Timestamp,
     #[serde(serialize_with = "response_format::duration_seconds")]
     pub playtime: Duration,
+}
+
+#[derive(Deserialize, Debug, Copy, Clone, PartialEq, Eq, Default)]
+pub enum ReplayGainMode {
+    #[default]
+    Off,
+    Track,
+    Album,
+    Auto,
+}
+
+#[derive(Deserialize, Debug, Copy, Clone, PartialEq, Eq, Default)]
+pub enum ConsumeState {
+    #[default]
+    Off,
+    #[serde(rename = "1")]
+    On,
+    Oneshot,
+}
+
+#[derive(Deserialize, Debug, Copy, Clone, PartialEq)]
+pub enum TimeOrOffset {
+    Absolute(f32),
+    Relative(f32),
+}
+
+#[derive(Deserialize, Debug, Copy, Clone, PartialEq)]
+pub enum Position {
+    Absolute(u32),
+    Relative(i32),
+}
+
+#[derive(Deserialize, Debug, Copy, Clone, PartialEq)]
+pub struct Range {
+    start: u32,
+    end: Option<u32>,
+}
+
+#[derive(Deserialize, Debug, Copy, Clone, PartialEq)]
+pub struct FloatRange {
+    start: Option<f32>,
+    end: Option<f32>,
+}
+
+#[derive(Deserialize, Debug, Copy, Clone, PartialEq)]
+pub enum PosOrRange {
+    Position(Position),
+    Range(Range),
+}
+
+#[derive(Deserialize, Debug, Copy, Clone, PartialEq, Default)]
+pub enum PlaylistSaveMode {
+    #[default]
+    Create,
+    Append,
+    Replace,
+}
+
+#[derive(Deserialize, Debug, Copy, Clone, PartialEq)]
+pub struct Sort {
+    reverse: bool,
+    kind: SortType,
+}
+
+#[derive(Deserialize, Debug, Copy, Clone, PartialEq)]
+enum SortType {
+    Tag(Tag),
+    Mtime,
+    Prio,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq, Hash)]
+pub struct ChannelName(pub String);
+
+#[derive(Deserialize, Debug, PartialEq)]
+pub enum StickerType {
+    Song,
+    Playlist,
+    Tag(Tag),
+    Query(Query),
+}
+
+#[derive(Deserialize, Debug, Copy, Clone, PartialEq, Default)]
+pub enum Operator {
+    #[default]
+    Equal,
+    LessThan,
+    GreaterThan,
+    Eq,
+    Lt,
+    Gt,
+    StartsWith,
+    Contains,
 }

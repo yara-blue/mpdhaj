@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use camino::Utf8PathBuf;
 
 #[derive(clap::Parser)]
 pub(crate) struct Cli {
@@ -7,16 +7,6 @@ pub(crate) struct Cli {
     /// The port mpdhaj is running or proxying on
     #[clap(default_value_t = 6600)]
     pub(crate) port: u16,
-}
-
-impl Cli {
-    pub fn proxy(&self) -> Option<&str> {
-        if let Commands::Proxy { address } = &self.command {
-            Some(address)
-        } else {
-            None
-        }
-    }
 }
 
 #[derive(clap::Subcommand)]
@@ -34,6 +24,6 @@ pub(crate) enum Commands {
 
 #[derive(clap::Parser)]
 pub struct RunArgs {
-    pub(crate) music_dir: PathBuf,
-    pub(crate) playlist_dir: Option<PathBuf>,
+    pub(crate) music_dir: Utf8PathBuf,
+    pub(crate) playlist_dir: Option<Utf8PathBuf>,
 }

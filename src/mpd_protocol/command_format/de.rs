@@ -3,10 +3,7 @@ use std::ops::{AddAssign, MulAssign, Neg};
 use super::error::{Error, Result};
 
 use serde::Deserialize;
-use serde::de::{
-    self, DeserializeSeed, EnumAccess, MapAccess, SeqAccess, VariantAccess,
-    Visitor,
-};
+use serde::de::{self, DeserializeSeed, EnumAccess, MapAccess, SeqAccess, VariantAccess, Visitor};
 
 pub struct Deserializer<'de> {
     // This string starts with the input data and characters are truncated off
@@ -150,7 +147,7 @@ impl<'de> Deserializer<'de> {
     }
 }
 
-impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
+impl<'de> de::Deserializer<'de> for &mut Deserializer<'de> {
     type Error = Error;
 
     fn deserialize_any<V>(self, _: V) -> Result<V::Value>
@@ -492,8 +489,7 @@ impl<'de, 'a> SeqAccess<'de> for SpaceSeparated<'a, 'de> {
             return Ok(None);
         }
 
-        let val = seed.deserialize(&mut *self.de).map(Some);
-        val
+        seed.deserialize(&mut *self.de).map(Some)
     }
 }
 

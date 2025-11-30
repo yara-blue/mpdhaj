@@ -38,6 +38,7 @@ impl<'de> Visitor<'de> for ListVisitor {
 
         Ok(List {
             tag_to_list,
+            query: Default::default(),
             group_by,
         })
     }
@@ -82,7 +83,7 @@ impl<'de> Visitor<'de> for QueryVisitor {
         }
 
         use serde::de::Error;
-        query::parse(&query).map_err(|report| A::Error::custom(report))
+        query::parse(&query).map_err(A::Error::custom)
     }
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {

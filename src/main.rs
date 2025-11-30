@@ -30,23 +30,30 @@ async fn main() -> Result<()> {
     match options.command {
         Commands::Proxy { address } => proxy::handle_clients(options.port, &address).await?,
         Commands::Run(args) => {
-            let system = Arc::new(Mutex::new(
-                System::new(args.music_dir, args.playlist_dir)
-                    .wrap_err("Could not start system")?,
-            ));
-            mpd_client::handle_clients(system).await?;
+            let system = Arc::new(Mutex::new({
+                let s = System::new(args.music_dir, args.playlist_dir)
+                    .wrap_err("Could not start system")?;
+                s.rescan().await?;
+                // s.add_to_queue(
+                //     "0-singles/Good Kid - Mimi's Delivery Service.opus".into(),
+                //     &None,
+                // )?;
+                // s.add_to_queue("0-singles/underscores - Music.ogg".into(), &None)?;
+                s
+            }));
+            mpd_client::handle_clients(system, options.port).await?;
         }
         Commands::Scan(args) => {
-            let mut system = System::new(args.music_dir, args.playlist_dir)
+            let system = System::new(args.music_dir, args.playlist_dir)
                 .wrap_err("Could not start system")?;
-            system.scan().await?;
+            system.rescan().await?
         }
     };
 
     Ok(())
 }
 
-pub fn setup_tracing() {
+pub(crate) fn setup_tracing() {
     use tracing_subscriber::filter;
     use tracing_subscriber::fmt;
     use tracing_subscriber::prelude::*;

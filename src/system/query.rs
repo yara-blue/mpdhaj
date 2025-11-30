@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use color_eyre::{Result, eyre::Context};
+use color_eyre::Result;
 use itertools::Itertools;
 use rodio::nz;
 use tracing::debug;
@@ -13,27 +13,35 @@ use crate::{
     system::Song,
 };
 
+// TODO: try translating query to sql WHERE statement(s)
 pub(crate) fn handle_find(system: &super::System, query: &Query) -> Result<Vec<FindResult>> {
     let query_root = &query.0;
 
-    system
+    let mut stmt = system
         .db
-        .library()
-        .iter()
-        .filter_ok(|song| apply_query(song, query_root))
-        .map_ok(|song| FindResult {
-            file: song.file,
-            last_modified: jiff::Timestamp::constant(0, 0),
-            added: jiff::Timestamp::constant(0, 0),
-            format: AudioParams {
-                samplerate: nz!(42),
-                channels: nz!(1),
-                bits: 16,
-            },
-            duration: Duration::from_secs(69),
+        .prepare("SELECT path, title, artist, album FROM songs")?;
+    stmt.query_and_then([], |row| {
+        Result::Ok(Song {
+            path: row.get::<_, String>(0)?.into(),
+            title: row.get(1)?,
+            artist: row.get(2)?,
+            album: row.get(3)?,
+            ..Default::default()
         })
-        .collect::<Result<Vec<_>, _>>()
-        .wrap_err("Could not iterate through database")
+    })?
+    .filter_ok(|song| apply_query(song, query_root))
+    .map_ok(|song| FindResult {
+        path: song.path,
+        last_modified: jiff::Timestamp::constant(0, 0),
+        added: jiff::Timestamp::constant(0, 0),
+        format: AudioParams {
+            samplerate: nz!(42),
+            channels: nz!(1),
+            bits: 16,
+        },
+        duration: Duration::from_secs(69),
+    })
+    .collect::<Result<Vec<_>, _>>()
 }
 
 impl Song {
@@ -51,7 +59,8 @@ impl Song {
         match tag {
             Tag::Album => false,
             Tag::AlbumArtist => false,
-            Tag::Artist => self.artist == needle,
+            Tag::Artist => self.artist == Some(needle.to_owned()),
+            _ => todo!(),
         }
     }
 }

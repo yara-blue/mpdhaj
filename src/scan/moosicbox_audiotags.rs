@@ -1,10 +1,12 @@
-use std::{path::PathBuf, time::Duration};
+use std::time::Duration;
 
-use moosicbox_audiotags::{Error, Tag};
+use camino::Utf8PathBuf;
 use rodio::Source;
 
-use crate::scan::{FormatScanner, MetaData, UNKNOWN};
+use crate::scan::Metadata;
+use crate::scan::{FormatScanner, UNKNOWN};
 use color_eyre::{Result, Section, eyre::Context};
+use moosicbox_audiotags::{Error, Tag};
 
 pub struct Scanner;
 
@@ -15,7 +17,7 @@ impl Scanner {
 }
 
 impl FormatScanner for Scanner {
-    fn scan(&self, path: PathBuf) -> Result<Option<MetaData>> {
+    fn scan(&self, path: Utf8PathBuf) -> Result<Option<Metadata>> {
         let tag = match Tag::new().read_from_path(&path) {
             Ok(tag) => tag,
             Err(
@@ -26,7 +28,7 @@ impl FormatScanner for Scanner {
             Err(other) => {
                 return Err(other)
                     .wrap_err("Could not parse metadata")
-                    .with_note(|| format!("path: {}", path.display()));
+                    .with_note(|| format!("path: {path}"));
             }
         };
 
@@ -38,7 +40,7 @@ impl FormatScanner for Scanner {
             source.total_duration().unwrap_or_default()
         };
 
-        Ok(Some(MetaData {
+        Ok(Some(Metadata {
             title: tag.title().unwrap_or(UNKNOWN).to_string(),
             file: path,
             artist: tag.artist().unwrap_or(UNKNOWN).to_string(),

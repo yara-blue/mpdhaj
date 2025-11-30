@@ -1,5 +1,4 @@
-use std::path::PathBuf;
-
+use camino::Utf8PathBuf;
 use color_eyre::{
     Result, Section,
     eyre::{Context, OptionExt},
@@ -36,9 +35,9 @@ pub enum Filter {
     /// expression instead of doing a simple string comparison.
     TagRegex { tag: Tag, regex: String },
     /// (file == 'VALUE'): match the full song URI (relative to the music directory).
-    PathEqual(PathBuf),
+    PathEqual(Utf8PathBuf),
     /// (base 'VALUE'): restrict the search to songs in the given directory (relative to the music directory).
-    ParentPathEquals(PathBuf),
+    ParentPathEquals(Utf8PathBuf),
     /// (modified-since 'VALUE'): compares the file’s time stamp with the given value (ISO 8601 or UNIX time stamp).
     ModifiedSince { time: jiff::Timestamp },
     /// (added-since 'VALUE'): compares time stamp when the file was added with the given value (ISO 8601 or UNIX time stamp).
