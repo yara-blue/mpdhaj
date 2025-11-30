@@ -9,7 +9,7 @@ use crate::mpd_protocol::{Command, SubSystem};
 peg::parser! {
     grammar command() for str {
         pub rule line() -> Command
-          = v:command() " " {v}
+          = v:command() {v}
         // rule subsystem() -> SubSystem
         //   = "test" { SubSystem::Database }
         rule subsystem() -> SubSystem
@@ -69,8 +69,30 @@ fn command_without_args(input: &str) -> RuleResult<Command> {
 }
 
 pub fn parse(s: &str) -> color_eyre::Result<Command> {
+    use ariadne::{Label, Report, ReportKind, Source};
+
     let s = s.trim();
-    command::line(s)
-        .wrap_err("Could not parse line")
-        .with_note(|| format!("line was: {s}"))
+    let result = command::line(dbg!(s));
+
+    match result {
+        Ok(c) => Ok(c),
+        Err(e) => {
+            Report::build(
+                ReportKind::Error,
+                e.location.column - 1..e.location.column - 1,
+            )
+            .with_message("Could not parse")
+            .with_label(
+                Label::new(dbg!(e.location.column - 1)..e.location.column - 1)
+                    .with_message(format!("Expected one of {}", e.expected)),
+            )
+            .finish()
+            .print(Source::from(s))
+            .unwrap();
+
+            Err(e)
+                .wrap_err("Could not parse line")
+                .with_note(|| format!("line was: {s}"))
+        }
+    }
 }
