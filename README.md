@@ -7,11 +7,6 @@ A somewhat[^1] conformant reimplementation of the [Music Player Daemon](https://
 ### TODO:
 
 - [ ] core protocol support
-  - [ ] handle positions in add/search/etc.
-  - [ ] queries
-  - [ ] random
-    - [ ] priority
-    - [ ] shuffle
 - [ ] actually make sound
   - [ ] linux
   - [ ] macos

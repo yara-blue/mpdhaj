@@ -4,7 +4,7 @@ use jiff::Timestamp;
 use tokio::task::spawn_blocking;
 use tracing::info;
 
-use crate::{system::System, util::LogError};
+use crate::system::System;
 
 mod lofty;
 mod moosicbox_audiotags;
@@ -56,7 +56,7 @@ impl System {
         generation: u32,
     ) -> Result<ScanResult> {
         if let Ok((id, cached_mtime)) = self.db.query_one(
-            "SELECT id, mtime FROM songs WHERE path = ?1",
+            "SELECT rowid, mtime FROM songs WHERE path = ?1",
             [relpath.as_str()],
             |row| Ok((row.get::<_, u32>(0)?, row.get::<_, String>(1)?)),
         ) {
@@ -67,7 +67,7 @@ impl System {
                 self.db.execute(
                     "UPDATE songs
                     SET mtime = ?2, title = ?3, artist = ?4, album = ?5, generation = ?6
-                    WHERE id = ?1
+                    WHERE rowid = ?1
                         ",
                     (
                         id,
@@ -82,7 +82,7 @@ impl System {
                 Ok(ScanResult::Updated)
             } else {
                 self.db.execute(
-                    "UPDATE songs SET generation = ?2 WHERE id = ?1",
+                    "UPDATE songs SET generation = ?2 WHERE rowid = ?1",
                     (id, generation),
                 )?;
                 Ok(ScanResult::Cached)

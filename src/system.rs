@@ -16,7 +16,7 @@ use std::time::Duration;
 use crate::mpd_protocol::query::Query;
 use crate::mpd_protocol::{
     self, AudioParams, FindResult, ListItem, PlayList, PlaybackState, PlaylistEntry, PlaylistId,
-    PlaylistInfo, SongId, SongNumber, SubSystem, Tag, Volume,
+    PlaylistInfo, Position, SongId, SongNumber, SubSystem, Tag, Volume,
 };
 use crate::playlist::{self, PlaylistName};
 
@@ -28,6 +28,7 @@ pub struct System {
     pub playlists: HashMap<PlaylistName, Vec<Utf8PathBuf>>,
     pub idlers: HashMap<SubSystem, Vec<mpsc::Sender<SubSystem>>>,
     pub music_dir: Utf8PathBuf,
+    #[allow(unused)]
     pub started_at: Timestamp, // for uptime
 }
 
@@ -85,47 +86,29 @@ impl System {
     }
 
     pub fn queue(&self) -> Result<mpd_protocol::PlaylistInfo> {
-        let mut ids = Vec::new();
-        let mut cur = self
-            .db
-            .query_one("SELECT head FROM state", [], |row| row.get::<_, u32>(0))?;
-        while cur != 0 {
-            let (next, id) = self.db.query_one(
-                "SELECT next, song, id FROM queue WHERE id = ?1",
-                [cur],
-                |row| Ok((row.get::<_, u32>(0)?, (row.get::<_, u32>(1)?, row.get(2)?))),
-            )?;
-            ids.push(id);
-            cur = next;
-        }
+        let mut stmt = self.db.prepare(
+            "SELECT q.id, q.position, s.path, s.title, s.artist, s.album
+             FROM queue q
+             JOIN songs s ON s.rowid = q.song
+             ORDER BY q.position",
+        )?;
 
-        let songs = ids
-            .into_iter()
-            .enumerate()
-            .map(|(pos, (song_number, song_id))| {
-                let song = self.get_song(song_number)?;
-                Ok::<_, Report>(PlaylistEntry::mostly_fake(
-                    pos as u32,
-                    SongId(song_id),
-                    song,
-                ))
-            })
+        let songs = stmt
+            .query_and_then([], |row| {
+                let song_id: u32 = row.get(0)?;
+                let position: u32 = row.get(1)?;
+                let song = Song {
+                    path: row.get::<_, String>(2)?.into(),
+                    title: row.get(3)?,
+                    artist: row.get(4)?,
+                    album: row.get(5)?,
+                    ..Default::default()
+                };
+                Ok::<_, Report>(PlaylistEntry::mostly_fake(position, SongId(song_id), song))
+            })?
             .collect::<Result<_, _>>()?;
 
         Ok(mpd_protocol::PlaylistInfo(songs))
-    }
-
-    pub fn queued(&self) -> Result<Option<PlaylistEntry>> {
-        let mut cur = self
-            .db
-            .query_one("SELECT head FROM state", [], |row| row.get::<_, u32>(0))?;
-        if cur == 0 {
-            return Ok(None);
-        }
-        let song = self.get_song(cur)?;
-        // TODO: keep track of pos to avoid recomputing all the time
-        let pos = 0;
-        Ok(Some(PlaylistEntry::mostly_fake(pos, SongId(cur), song)))
     }
 
     pub fn playlists(&self) -> mpd_protocol::PlaylistList {
@@ -139,7 +122,7 @@ impl System {
 
     fn song_number_from_path(&self, path: &Utf8Path) -> Result<u32> {
         Ok(self.db.query_one(
-            "SELECT id FROM songs WHERE path = ?1",
+            "SELECT rowid FROM songs WHERE path = ?1",
             [path.as_str()],
             |row| row.get(0),
         )?)
@@ -156,10 +139,27 @@ impl System {
                         title: row.get(1)?,
                         artist: row.get(2)?,
                         album: row.get(3)?,
+                        ..Default::default()
                     })
                 },
             )
             .context("Couldn't find song in database: {id}")
+    }
+
+    pub fn get_song_by_path(&self, path: &Utf8Path) -> Result<Song> {
+        Ok(self.db.query_one(
+            "SELECT title, artist, album FROM songs WHERE path = ?1",
+            [path.as_str()],
+            |r| {
+                Ok(Song {
+                    path: path.to_owned(),
+                    title: r.get(0)?,
+                    artist: r.get(1)?,
+                    album: r.get(2)?,
+                    ..Default::default()
+                })
+            },
+        )?)
     }
 
     pub fn get_playlist(&self, name: &PlaylistName) -> Result<mpd_protocol::PlaylistInfo> {
@@ -189,21 +189,6 @@ impl System {
         Ok(mpd_protocol::PlaylistInfo(songs))
     }
 
-    pub fn song_info_from_path(&self, path: &Utf8Path) -> Result<Song> {
-        Ok(self.db.query_one(
-            "SELECT title, artist, album FROM songs WHERE path = ?1",
-            [path.as_str()],
-            |r| {
-                Ok(Song {
-                    path: path.to_owned(),
-                    title: r.get(0)?,
-                    artist: r.get(1)?,
-                    album: r.get(2)?,
-                })
-            },
-        )?)
-    }
-
     pub fn idle(&mut self, mut subsystems: Vec<SubSystem>) -> mpsc::Receiver<SubSystem> {
         if subsystems.is_empty() {
             subsystems.extend(SubSystem::iter());
@@ -219,24 +204,39 @@ impl System {
         rx
     }
 
-    pub fn add_to_queue(&mut self, path: &Utf8Path) -> Result<()> {
-        let id = self.song_number_from_path(path)?;
-        let tail = self
-            .db
-            .query_one("SELECT tail FROM state", [], |row| row.get::<_, u32>(0))?;
-        let mut stmt = self
-            .db
-            .prepare("INSERT INTO queue (id, prev, next) VALUES (?1, ?2, 0)")?;
-        let slot = stmt.insert([id, tail])?;
-        if tail == 0 {
-            self.db
-                .execute("UPDATE state SET head = ?1, tail = ?2", [slot, slot])?;
+    pub fn add_to_queue(&self, path: &Utf8Path, position: &Option<Position>) -> Result<SongId> {
+        let song = self.song_number_from_path(path)?;
+        if let Some(pos) = position {
+            let pos: u32 = match pos {
+                Position::Absolute(pos) => *pos,
+                Position::Relative(offset) => {
+                    // TODO: handle +0/-0 correctly. probably just increment positive values by 1 at parse time
+                    let current = self
+                        .db
+                        .query_one("SELECT current FROM state", [], |row| row.get::<_, u32>(0))?;
+                    if -offset >= current as i32 {
+                        return Err(eyre!(
+                            "Position {offset} is invalid, current position is {current}"
+                        ));
+                    }
+                    (current as i32 + offset) as u32
+                }
+            };
+            self.db.execute(
+                "UPDATE state SET position = position + 1 WHERE position >= ?1",
+                [pos],
+            )?;
+            let mut stmt = self
+                .db
+                .prepare("INSERT INTO queue (id, prev, next) VALUES (?1, ?2, 0)")?;
+            Ok(stmt.insert([song, pos]).map(|n| SongId(n as u32))?)
         } else {
-            self.db.execute("UPDATE state SET tail = ?1", [slot])?;
-            self.db
-                .execute("UPDATE queue SET next = ?1 WHERE id = ?2", (slot, tail))?;
+            let mut stmt = self.db.prepare(
+                "INSERT INTO queue (song, position)
+                    VALUES (?1, COALESCE((SELECT MAX(position) FROM queue), 0) + 1)",
+            )?;
+            Ok(stmt.insert([song]).map(|n| SongId(n as u32))?)
         }
-        Ok(())
     }
 
     pub fn list_all_in(&self, dir: &Utf8Path) -> Result<Vec<ListItem>> {
@@ -264,40 +264,23 @@ impl System {
     }
 
     pub fn current_song(&self) -> Result<Option<PlaylistEntry>> {
-        let Ok(index) = self
+        let Ok(pos): Result<u32, _> = self
             .db
-            .query_one("SELECT current FROM state", [], |row| row.get::<_, u32>(0))
+            .query_one("SELECT current FROM state", [], |row| row.get(0))
         else {
             return Ok(None);
         };
-        if index == 0 {
+        if pos == 0 {
             return Ok(None);
         }
-        let Ok(id) = self
-            .db
-            .query_one("SELECT id FROM queue WHERE slot = ?1", [index], |row| {
-                row.get::<_, u32>(0)
-            })
-        else {
-            return Err(eyre!(
-                "Couldn't find the currently song in the queue {index}"
-            ));
+        let Ok((song, id)) = self.db.query_one(
+            "SELECT song, id FROM queue WHERE position = ?1",
+            [pos],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ) else {
+            return Err(eyre!("Couldn't find the currently song in the queue {pos}"));
         };
-        let song = self
-            .db
-            .query_one(
-                "SELECT path,title,artist,album FROM songs WHERE id = ?1",
-                [id],
-                |row| {
-                    Ok(Song {
-                        path: row.get::<_, String>(0)?.into(),
-                        title: row.get(1)?,
-                        artist: row.get(2)?,
-                        album: row.get(3)?,
-                    })
-                },
-            )
-            .context("Couldn't find song in database: {id}")?;
+        let song = self.get_song(song)?;
         Ok(Some(PlaylistEntry::mostly_fake(0, SongId(id), song)))
     }
 
@@ -312,10 +295,50 @@ impl System {
     }
 }
 
-#[derive(Deserialize, Serialize, Hash)]
+#[derive(Deserialize, Serialize, Hash, Default)]
 pub struct Song {
     pub path: Utf8PathBuf,
-    pub title: String,
-    pub artist: String,
-    pub album: String,
+    pub mtime: Timestamp,
+    pub generation: u64,
+
+    pub play_count: u32,
+    pub skip_count: u32,
+    pub date_added: Timestamp,
+
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub artist_sort: Option<String>,
+    pub album: Option<String>,
+    pub album_sort: Option<String>,
+    pub album_artist: Option<String>,
+    pub album_artist_sort: Option<String>,
+    pub title_sort: Option<String>,
+    pub track: Option<u8>,
+    pub name: Option<String>,
+    pub genre: Option<String>,
+    pub mood: Option<String>,
+    pub date: Option<String>,
+    pub original_date: Option<String>,
+    pub composer: Option<String>,
+    pub composer_sort: Option<String>,
+    pub performer: Option<String>,
+    pub conductor: Option<String>,
+    pub work: Option<String>,
+    pub ensemble: Option<String>,
+    pub movement: Option<String>,
+    pub movement_number: Option<String>,
+    pub show_movement: Option<bool>,
+    pub location: Option<String>,
+    pub grouping: Option<String>,
+    pub comment: Option<String>,
+    pub disc: Option<u8>,
+    pub label: Option<String>,
+
+    pub musicbrainz_artist_id: Option<String>,
+    pub musicbrainz_album_id: Option<String>,
+    pub musicbrainz_album_artist_id: Option<String>,
+    pub musicbrainz_track_id: Option<String>,
+    pub musicbrainz_releasegroup_id: Option<String>,
+    pub musicbrainz_release_track_i: Option<String>,
+    pub musicbrainz_work_id: Option<String>,
 }

@@ -1,4 +1,5 @@
 pub mod command_format;
+#[allow(unused)]
 pub mod query;
 pub mod response_format;
 
@@ -336,6 +337,7 @@ impl Volume {
             panic!("Volume value must be between 0 and 101")
         }
     }
+    #[allow(unused)]
     pub fn get(&self) -> u8 {
         self.0
     }
@@ -403,6 +405,7 @@ pub struct PlaylistEntry {
 #[serde(rename_all = "lowercase")]
 // TODO: check with yara, it doesn't seem to return directories on my machine? maybe mpc filters them out?
 pub enum ListItem {
+    #[allow(unused)]
     Directory(Utf8PathBuf),
     File(Utf8PathBuf),
 }
@@ -433,17 +436,17 @@ impl PlaylistEntry {
                 bits: 16,
                 channels: nz!(42),
             },
-            artist: song.artist,
+            artist: song.artist.unwrap_or("unknown".to_owned()),
             album_artist: "todo".to_string(),
-            title: song.title,
-            album: "todo".to_string(),
+            title: song.title.unwrap_or("unknown".to_owned()),
+            album: song.album.unwrap_or("unknown".to_owned()),
             track: 42,
             date: "todo".to_string(),
             genre: None,
             label: "todo".to_string(),
             disc: None,
             duration: Duration::ZERO,
-            pos: PosInPlaylist(pos.try_into().expect("You should not have 4 billion songs")),
+            pos: PosInPlaylist(pos),
             id,
         }
     }

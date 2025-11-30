@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use color_eyre::{Result, eyre::Context};
+use color_eyre::Result;
 use itertools::Itertools;
 use rodio::nz;
 use tracing::debug;
@@ -26,6 +26,7 @@ pub(crate) fn handle_find(system: &super::System, query: &Query) -> Result<Vec<F
             title: row.get(1)?,
             artist: row.get(2)?,
             album: row.get(3)?,
+            ..Default::default()
         })
     })?
     .filter_ok(|song| apply_query(song, query_root))
@@ -58,7 +59,7 @@ impl Song {
         match tag {
             Tag::Album => false,
             Tag::AlbumArtist => false,
-            Tag::Artist => self.artist == needle,
+            Tag::Artist => self.artist == Some(needle.to_owned()),
             _ => todo!(),
         }
     }

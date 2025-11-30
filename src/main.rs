@@ -34,6 +34,11 @@ async fn main() -> Result<()> {
                 let s = System::new(args.music_dir, args.playlist_dir)
                     .wrap_err("Could not start system")?;
                 s.rescan().await?;
+                // s.add_to_queue(
+                //     "0-singles/Good Kid - Mimi's Delivery Service.opus".into(),
+                //     &None,
+                // )?;
+                // s.add_to_queue("0-singles/underscores - Music.ogg".into(), &None)?;
                 s
             }));
             mpd_client::handle_clients(system, options.port).await?;

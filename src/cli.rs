@@ -9,16 +9,6 @@ pub(crate) struct Cli {
     pub(crate) port: u16,
 }
 
-impl Cli {
-    pub fn proxy(&self) -> Option<&str> {
-        if let Commands::Proxy { address } = &self.command {
-            Some(address)
-        } else {
-            None
-        }
-    }
-}
-
 #[derive(clap::Subcommand)]
 pub(crate) enum Commands {
     /// Forward calls to another mpd server at this address
