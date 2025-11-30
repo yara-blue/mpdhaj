@@ -15,7 +15,8 @@ use std::time::Duration;
 
 use crate::mpd_protocol::query::Query;
 use crate::mpd_protocol::{
-    self, AudioParams, FindResult, ListItem, PlayList, PlaybackState, PlaylistEntry, PlaylistId, PlaylistInfo, Position, SongId, SongNumber, SubSystem, Tag, Volume
+    self, AudioParams, FindResult, ListItem, PlayList, PlaybackState, PlaylistEntry, PlaylistId,
+    PlaylistInfo, Position, SongId, SongNumber, SubSystem, Tag, Volume,
 };
 use crate::playlist::{self, PlaylistName};
 
@@ -444,16 +445,17 @@ mod tests {
         color_eyre::install().unwrap();
         setup_tracing();
 
-        let mut system = System::new("~/Music".into(), None).unwrap();
+        let system = System::new("~/Music".into(), None).unwrap();
         system
-            .add_to_queue(Path::new(
-                "The Sims Complete Collection/Disc 1/01 - Now Entering.mp3",
-            ))
+            .add_to_queue(
+                Utf8Path::new("The Sims Complete Collection/Disc 1/01 - Now Entering.mp3"),
+                &None,
+            )
             .unwrap();
 
         let queue = system.queue().unwrap();
         let first = &queue.0[0];
-        assert!(first.file.to_string_lossy().contains("Sims"));
+        assert!(first.path.as_str().contains("Sims"));
     }
 
     // #[test]

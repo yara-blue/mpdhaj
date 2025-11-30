@@ -1,4 +1,5 @@
 pub mod command_format;
+pub mod command_parser;
 #[allow(unused)]
 pub mod query;
 pub mod response_format;
@@ -6,7 +7,6 @@ pub mod response_format;
 use std::time::Duration;
 
 use camino::Utf8PathBuf;
-use color_eyre::{Section, eyre::Context};
 use jiff::Timestamp;
 use rodio::{ChannelCount, SampleRate, nz};
 use serde::{Deserialize, Serialize};
@@ -19,15 +19,15 @@ pub const VERSION: &str = "0.24.4";
 // TODO: in general these should be using URIs instead of Utf8PathBuf
 
 /// see <https://mpd.readthedocs.io/en/stable/protocol.html#command-reference>
-#[derive(Debug, Deserialize, strum_macros::VariantNames, PartialEq)]
+#[derive(Debug, Default, strum_macros::VariantNames, strum_macros::EnumString, PartialEq)]
 #[strum(serialize_all = "lowercase")]
-#[serde(rename_all = "lowercase")]
 pub enum Command {
     // Query Status:
     ClearError,
     CurrentSong,
     Idle(Vec<SubSystem>),
     NoIdle,
+    #[default]
     Status,
     Stats,
 
@@ -210,7 +210,9 @@ pub enum Command {
     SendMessage(ChannelName, String),
 }
 
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Hash, strum::EnumIter)]
+#[derive(
+    Debug, Deserialize, Serialize, PartialEq, Eq, Hash, strum::EnumIter, strum::EnumString,
+)]
 pub enum SubSystem {
     /// the song database has been modified after update.
     Database,
@@ -296,9 +298,7 @@ pub enum Tag {
 impl Command {
     #[instrument(level = "debug", ret)]
     pub(crate) fn parse(line: &str) -> color_eyre::Result<Self> {
-        command_format::from_str(line)
-            .wrap_err("Could not deserialize line")
-            .with_note(|| format!("line was: {line}"))
+        command_parser::parse(line)
     }
 }
 
@@ -373,7 +373,7 @@ pub struct PlaylistInfo(pub Vec<PlaylistEntry>);
 #[serde(rename_all = "PascalCase")]
 pub struct PlaylistEntry {
     #[serde(rename = "file")]
-    path: Utf8PathBuf,
+    pub path: Utf8PathBuf,
     #[serde(rename = "Last-Modified")]
     last_modified: jiff::Timestamp, // as 2025-06-15T22:06:58Z
     added: jiff::Timestamp, // as 2025-06-15T22:06:58Z
@@ -526,16 +526,37 @@ pub enum TimeOrOffset {
     Relative(f32),
 }
 
+impl Default for TimeOrOffset {
+    fn default() -> Self {
+        Self::Absolute(0.0)
+    }
+}
+
 #[derive(Deserialize, Debug, Copy, Clone, PartialEq)]
 pub enum Position {
     Absolute(u32),
     Relative(i32),
 }
 
+impl Default for Position {
+    fn default() -> Self {
+        Self::Absolute(0)
+    }
+}
+
 #[derive(Deserialize, Debug, Copy, Clone, PartialEq)]
 pub struct Range {
     start: u32,
     end: Option<u32>,
+}
+
+impl Default for Range {
+    fn default() -> Self {
+        Self {
+            start: 0,
+            end: None,
+        }
+    }
 }
 
 #[derive(Deserialize, Debug, Copy, Clone, PartialEq)]
@@ -548,6 +569,12 @@ pub struct FloatRange {
 pub enum PosOrRange {
     Position(Position),
     Range(Range),
+}
+
+impl Default for PosOrRange {
+    fn default() -> Self {
+        Self::Range(Range::default())
+    }
 }
 
 #[derive(Deserialize, Debug, Copy, Clone, PartialEq, Default)]
@@ -574,9 +601,10 @@ enum SortType {
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq, Hash)]
 pub struct ChannelName(pub String);
 
-#[derive(Deserialize, Debug, PartialEq)]
+#[derive(Deserialize, Default, Debug, PartialEq)]
 pub enum StickerType {
     Song,
+    #[default]
     Playlist,
     Tag(Tag),
     Query(Query),
