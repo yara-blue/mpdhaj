@@ -61,7 +61,7 @@ grammar command() for str {
       "+" n:number::<i32>() { Position::Relative(n + 1 ) } /
       "-" n:number::<i32>() { Position::Relative(-n) }
 
-    rule uri() -> Utf8PathBuf = #{|input, pos| uri(input, pos) }
+    rule uri() -> Utf8PathBuf = #{ uri }
     rule _() = quiet!{[' '|'\t']}
 
     rule subsystem() -> SubSystem
@@ -93,8 +93,7 @@ fn possibly_quoted_string(input: &str) -> RuleResult<String> {
     }
     let mut output = String::new();
     let padded = input.chars();
-    let mut windows = padded.tuple_windows();
-    while let Some(w @ (_, _)) = windows.next() {
+    for w @ (_, _) in padded.tuple_windows() {
         match w {
             ('\\', c @ ('\\' | '"')) => output.push(c),
             (_, '\\') => {}

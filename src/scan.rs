@@ -5,7 +5,7 @@ use color_eyre::Result;
 use jiff::Timestamp;
 use rusqlite::{Connection, Transaction};
 use tokio::task::spawn_blocking;
-use tracing::{info, info_span, span, trace_span};
+use tracing::{info, info_span, trace_span};
 
 use crate::system::System;
 

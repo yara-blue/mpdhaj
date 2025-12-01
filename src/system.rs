@@ -261,7 +261,7 @@ impl System {
 
     pub fn clear(&self) -> Result<()> {
         self.db.execute_batch(
-            "BEGIN
+            "BEGIN;
             UPDATE state SET current = 0;
             DELETE FROM queue;
             COMMIT;",

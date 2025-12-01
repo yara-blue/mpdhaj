@@ -519,16 +519,10 @@ impl Default for Position {
     }
 }
 
-#[derive(Deserialize, Debug, Copy, Clone, PartialEq)]
+#[derive(Deserialize, Debug, Copy, Clone, PartialEq, Default)]
 pub struct Range {
     start: u32,
     end: Option<u32>,
-}
-
-impl Default for Range {
-    fn default() -> Self {
-        Self { start: 0, end: None }
-    }
 }
 
 #[derive(Deserialize, Debug, Copy, Clone, PartialEq)]
