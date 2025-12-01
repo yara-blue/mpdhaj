@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use clap::Parser;
 use color_eyre::{Result, eyre::Context};
+use tracing_subscriber::fmt::format::FmtSpan;
 
 use crate::{
     cli::{Cli, Commands},
@@ -31,7 +32,7 @@ async fn main() -> Result<()> {
         Commands::Proxy { address } => proxy::handle_clients(options.port, &address).await?,
         Commands::Run(args) => {
             let system = Arc::new(Mutex::new({
-                let s = System::new(args.music_dir, args.playlist_dir)
+                let mut s = System::new(args.music_dir, args.playlist_dir)
                     .wrap_err("Could not start system")?;
                 s.rescan().await?;
                 // s.add_to_queue(
@@ -44,7 +45,7 @@ async fn main() -> Result<()> {
             mpd_client::handle_clients(system, options.port).await?;
         }
         Commands::Scan(args) => {
-            let system = System::new(args.music_dir, args.playlist_dir)
+            let mut system = System::new(args.music_dir, args.playlist_dir)
                 .wrap_err("Could not start system")?;
             system.rescan().await?
         }
@@ -59,10 +60,7 @@ pub(crate) fn setup_tracing() {
     use tracing_subscriber::prelude::*;
 
     let filter = filter::EnvFilter::builder().from_env().unwrap();
-    let fmt = fmt::layer().pretty().with_line_number(true);
+    let fmt = fmt::layer().pretty().with_line_number(true).with_span_events(FmtSpan::CLOSE);
 
-    let _ignore_err = tracing_subscriber::registry()
-        .with(fmt)
-        .with(filter)
-        .try_init();
+    let _ignore_err = tracing_subscriber::registry().with(fmt).with(filter).try_init();
 }

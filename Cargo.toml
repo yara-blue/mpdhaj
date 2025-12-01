@@ -17,14 +17,27 @@ lofty = "0.22"
 moosicbox_audiotags = "0.1"
 notify-debouncer-full = "0.6"
 rodio = { git = "https://www.github.com/RustAudio/rodio" }
-rusqlite = {version = "0.37", features = ["bundled"] } # TODO: use tokio-rusqlite
+# using bundled sqlite is about twice as fast as the nixpkgs one on my x86_linux system
+# if perf on an underpowered machine is a concern, we can enable it here
+rusqlite = "0.37" # TODO: use tokio-rusqlite
 serde = { version = "1", features = ["derive"] }
 strum = { version = "0.27.2", features = ["derive"] }
 strum_macros = "0.27.2"
-tokio = { version = "1.48", features = ["rt", "fs", "macros", "net", "io-std", "io-util", "sync"] }
+tokio = { version = "1.48", features = [
+    "rt",
+    "fs",
+    "macros",
+    "net",
+    "io-std",
+    "io-util",
+    "sync",
+] }
 tokio-stream = { version = "0.1", features = ["fs"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 walkdir = "2"
 peg = "0.8.5"
 ariadne = "0.6.0"
+
+# [profile.release]
+# debug = true

@@ -13,10 +13,7 @@ use tracing::{debug, info, warn};
 use crate::mpd_protocol::{self, PlaybackState, SubSystem, response_format};
 use crate::{mpd_protocol::Command, system::System};
 
-pub(crate) async fn handle_clients(
-    system: Arc<std::sync::Mutex<System>>,
-    port: u16,
-) -> Result<()> {
+pub(crate) async fn handle_clients(system: Arc<std::sync::Mutex<System>>, port: u16) -> Result<()> {
     let listener = TcpListener::bind(format!("0.0.0.0:{port}")).await?;
 
     loop {
@@ -170,9 +167,7 @@ async fn handle_idle(
             info!("client closed connection");
             return Ok(None);
         }
-        Potato::NextLine(Err(e)) => {
-            Err(e).wrap_err("Could not get next line from client")?
-        }
+        Potato::NextLine(Err(e)) => Err(e).wrap_err("Could not get next line from client")?,
     }))
 }
 
@@ -183,26 +178,21 @@ async fn acknowledge(writer: &mut (impl AsyncWrite + 'static + Unpin)) -> Result
 async fn acknowledge_cmd_list_entry(
     writer: &mut (impl AsyncWrite + 'static + Unpin),
 ) -> Result<()> {
-    writer
-        .write_all(b"list_OK\n")
-        .await
-        .wrap_err("Failed to acknowledge cmd list item to client")
+    writer.write_all(b"list_OK\n").await.wrap_err("Failed to acknowledge cmd list item to client")
 }
 
-pub fn perform_command(
-    request: Command,
-    system: &Mutex<System>,
-) -> color_eyre::Result<String> {
+pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::Result<String> {
     use Command::*;
     let mut system = system.lock().expect("No thread should ever panic");
     Ok(match &request {
         BinaryLimit(_) => String::new(),
         Commands => supported_command_list(),
-        Status => response_format::to_string(&system.status())
-            .wrap_err("Failed to get system status")?,
-        PlaylistInfo(_pos_or_range) => response_format::to_string(
-            &system.queue().wrap_err("Failed to get current queue")?,
-        )?,
+        Status => {
+            response_format::to_string(&system.status()).wrap_err("Failed to get system status")?
+        }
+        PlaylistInfo(_pos_or_range) => {
+            response_format::to_string(&system.queue().wrap_err("Failed to get current queue")?)?
+        }
         ListPlayLists => response_format::to_string(&system.playlists())
             .wrap_err("Failed to get list of playlists")?,
         ListPlaylistInfo(playlist_name, _range) => response_format::to_string(

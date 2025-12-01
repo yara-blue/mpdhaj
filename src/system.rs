@@ -15,8 +15,8 @@ use std::time::Duration;
 
 use crate::mpd_protocol::query::Query;
 use crate::mpd_protocol::{
-    self, AudioParams, FindResult, ListItem, PlayList, PlaybackState, PlaylistEntry,
-    PlaylistId, PlaylistInfo, Position, SongId, SongNumber, SubSystem, Tag, Volume,
+    self, AudioParams, FindResult, ListItem, PlayList, PlaybackState, PlaylistEntry, PlaylistId,
+    PlaylistInfo, Position, SongId, SongNumber, SubSystem, Tag, Volume,
 };
 use crate::playlist::{self, PlaylistName};
 
@@ -109,11 +109,8 @@ impl System {
     }
 
     pub fn playlists(&self) -> mpd_protocol::PlaylistList {
-        let list = self
-            .playlists
-            .keys()
-            .map(|name| PlayList::from_name(name.clone()))
-            .collect_vec();
+        let list =
+            self.playlists.keys().map(|name| PlayList::from_name(name.clone())).collect_vec();
         mpd_protocol::PlaylistList(list)
     }
 
@@ -127,19 +124,15 @@ impl System {
 
     fn get_song(&self, id: u32) -> Result<Song> {
         self.db
-            .query_one(
-                "SELECT path, title, artist, album FROM songs WHERE id = ?1",
-                [id],
-                |row| {
-                    Ok(Song {
-                        path: row.get::<_, String>(0)?.into(),
-                        title: row.get(1)?,
-                        artist: row.get(2)?,
-                        album: row.get(3)?,
-                        ..Default::default()
-                    })
-                },
-            )
+            .query_one("SELECT path, title, artist, album FROM songs WHERE id = ?1", [id], |row| {
+                Ok(Song {
+                    path: row.get::<_, String>(0)?.into(),
+                    title: row.get(1)?,
+                    artist: row.get(2)?,
+                    album: row.get(3)?,
+                    ..Default::default()
+                })
+            })
             .context("Couldn't find song in database: {id}")
     }
 
@@ -165,21 +158,15 @@ impl System {
             return Ok(PlaylistInfo(Vec::new()));
         };
 
-        let song_numbers: Vec<_> = paths
-            .iter()
-            .map(|path| self.song_number_from_path(path))
-            .collect::<Result<_, _>>()?;
+        let song_numbers: Vec<_> =
+            paths.iter().map(|path| self.song_number_from_path(path)).collect::<Result<_, _>>()?;
 
         let songs = song_numbers
             .into_iter()
             .enumerate()
             .map(|(pos, song_number)| {
                 let song = self.get_song(song_number)?;
-                Ok::<_, Report>(PlaylistEntry::mostly_fake(
-                    pos as u32,
-                    SongId(song_number),
-                    song,
-                ))
+                Ok::<_, Report>(PlaylistEntry::mostly_fake(pos as u32, SongId(song_number), song))
             })
             .collect::<Result<_, _>>()?;
 
@@ -201,20 +188,15 @@ impl System {
         rx
     }
 
-    pub fn add_to_queue(
-        &self,
-        path: &Utf8Path,
-        position: &Option<Position>,
-    ) -> Result<SongId> {
+    pub fn add_to_queue(&self, path: &Utf8Path, position: &Option<Position>) -> Result<SongId> {
         let song = self.song_number_from_path(path)?;
         if let Some(pos) = position {
             let pos: u32 = match pos {
                 Position::Absolute(pos) => *pos,
                 Position::Relative(offset) => {
-                    let current =
-                        self.db.query_one("SELECT current FROM state", [], |row| {
-                            row.get::<_, u32>(0)
-                        })?;
+                    let current = self
+                        .db
+                        .query_one("SELECT current FROM state", [], |row| row.get::<_, u32>(0))?;
                     if -offset > current as i32 {
                         return Err(eyre!(
                             "Position {offset} is invalid, current position is {current}"
@@ -223,12 +205,9 @@ impl System {
                     (current as i32 + offset) as u32
                 }
             };
-            self.db.execute(
-                "UPDATE queue SET position = position + 1 WHERE position >= ?1",
-                [pos],
-            )?;
-            let mut stmt =
-                self.db.prepare("INSERT INTO queue (song, position) VALUES (?1, ?2)")?;
+            self.db
+                .execute("UPDATE queue SET position = position + 1 WHERE position >= ?1", [pos])?;
+            let mut stmt = self.db.prepare("INSERT INTO queue (song, position) VALUES (?1, ?2)")?;
             Ok(stmt.insert([song, pos]).map(|n| SongId(n as u32))?)
         } else {
             let mut stmt = self.db.prepare(
@@ -240,14 +219,11 @@ impl System {
     }
 
     pub fn list_all_in(&self, dir: &Utf8Path) -> Result<Vec<ListItem>> {
-        let mut stmt = self.db.prepare(&format!(
-            "SELECT path FROM songs WHERE path LIKE '{}%'",
-            dir.as_str()
-        ))?;
-        stmt.query_and_then([], |row| {
-            Result::Ok(ListItem::File(row.get::<_, String>(0)?.into()))
-        })?
-        .collect::<Result<Vec<_>, Report>>()
+        let mut stmt = self
+            .db
+            .prepare(&format!("SELECT path FROM songs WHERE path LIKE '{}%'", dir.as_str()))?;
+        stmt.query_and_then([], |row| Result::Ok(ListItem::File(row.get::<_, String>(0)?.into())))?
+            .collect::<Result<Vec<_>, Report>>()
     }
 
     pub fn list_tag(&self, tag_to_list: &Tag) -> Result<Vec<String>> {
@@ -272,11 +248,11 @@ impl System {
         if pos == 0 {
             return Ok(None);
         }
-        let Ok((song, id)) = self.db.query_one(
-            "SELECT song, id FROM queue WHERE position = ?1",
-            [pos],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        ) else {
+        let Ok((song, id)) =
+            self.db.query_one("SELECT song, id FROM queue WHERE position = ?1", [pos], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+        else {
             return Err(eyre!("Couldn't find the currently song in the queue {pos}"));
         };
         let song = self.get_song(song)?;

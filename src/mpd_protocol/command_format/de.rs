@@ -32,11 +32,7 @@ where
 {
     let mut deserializer = Deserializer::from_str(s);
     let t = T::deserialize(&mut deserializer)?;
-    if deserializer.input.is_empty() {
-        Ok(t)
-    } else {
-        Err(Error::TrailingCharacters)
-    }
+    if deserializer.input.is_empty() { Ok(t) } else { Err(Error::TrailingCharacters) }
 }
 
 // SERDE IS NOT A PARSING LIBRARY. This impl block defines a few basic parsing
@@ -137,10 +133,7 @@ impl<'de> Deserializer<'de> {
     }
 
     fn parse_ident(&mut self) -> Result<&'de str> {
-        let len = self
-            .input
-            .find(char::is_whitespace)
-            .unwrap_or(self.input.len());
+        let len = self.input.find(char::is_whitespace).unwrap_or(self.input.len());
         let s = &self.input[..len];
         self.input = &self.input[s.len()..];
         Ok(s)
@@ -393,11 +386,7 @@ impl<'de> de::Deserializer<'de> for &mut Deserializer<'de> {
             // Give the visitor access to each entry of the map.
             let value = visitor.visit_map(SpaceSeparated::new(self))?;
             // Parse the closing brace of the map.
-            if self.next_char()? == '}' {
-                Ok(value)
-            } else {
-                Err(Error::ExpectedMapEnd)
-            }
+            if self.next_char()? == '}' { Ok(value) } else { Err(Error::ExpectedMapEnd) }
         } else {
             Err(Error::ExpectedMap)
         }

@@ -17,9 +17,7 @@ use crate::{
 pub(crate) fn handle_find(system: &super::System, query: &Query) -> Result<Vec<FindResult>> {
     let query_root = &query.0;
 
-    let mut stmt = system
-        .db
-        .prepare("SELECT path, title, artist, album FROM songs")?;
+    let mut stmt = system.db.prepare("SELECT path, title, artist, album FROM songs")?;
     stmt.query_and_then([], |row| {
         Result::Ok(Song {
             path: row.get::<_, String>(0)?.into(),
@@ -34,11 +32,7 @@ pub(crate) fn handle_find(system: &super::System, query: &Query) -> Result<Vec<F
         path: song.path,
         last_modified: jiff::Timestamp::constant(0, 0),
         added: jiff::Timestamp::constant(0, 0),
-        format: AudioParams {
-            samplerate: nz!(42),
-            channels: nz!(1),
-            bits: 16,
-        },
+        format: AudioParams { samplerate: nz!(42), channels: nz!(1), bits: 16 },
         duration: Duration::from_secs(69),
     })
     .collect::<Result<Vec<_>, _>>()

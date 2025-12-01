@@ -19,6 +19,7 @@
 
           buildInputs = with pkgs; [] ++ lib.optionals pkgs.stdenv.isLinux [
             alsa-lib
+            sqlite
           ];
 
           packages = with pkgs; [

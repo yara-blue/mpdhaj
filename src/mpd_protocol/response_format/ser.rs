@@ -17,9 +17,7 @@ pub fn to_string<T>(value: &T) -> Result<String>
 where
     T: Serialize,
 {
-    let mut serializer = Serializer {
-        output: String::new(),
-    };
+    let mut serializer = Serializer { output: String::new() };
     value.serialize(&mut serializer)?;
     Ok(serializer.output)
 }
@@ -139,8 +137,7 @@ impl ser::Serializer for &mut Serializer {
 
     // An absent optional is represented as the JSON `null`.
     fn serialize_none(self) -> Result<()> {
-        self.output
-            .truncate(self.output.rfind('\n').unwrap_or_default());
+        self.output.truncate(self.output.rfind('\n').unwrap_or_default());
         Ok(())
     }
 

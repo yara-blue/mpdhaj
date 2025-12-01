@@ -36,11 +36,7 @@ impl<'de> Visitor<'de> for ListVisitor {
             }
         }
 
-        Ok(List {
-            tag_to_list,
-            query: Default::default(),
-            group_by,
-        })
+        Ok(List { tag_to_list, query: Default::default(), group_by })
     }
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {

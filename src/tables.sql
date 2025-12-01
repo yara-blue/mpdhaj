@@ -50,12 +50,16 @@ CREATE TABLE IF NOT EXISTS songs (
     musicbrainz_work_id             TEXT
 );
 
+-- this makes scanning significantly faster at the cost of a bit of extra space (~15% larger database)
+-- CREATE UNIQUE INDEX IF NOT EXISTS idx_songs ON songs (path);
+
 CREATE TABLE IF NOT EXISTS state (
     -- used to remove deleted songs
     generation  INTEGER DEFAULT 0,
 
     -- position in queue
     current     INTEGER DEFAULT 0,
+
     repeat      BOOLEAN DEFAULT 0,
     random      BOOLEAN DEFAULT 0,
     single      BOOLEAN DEFAULT 0,
@@ -66,7 +70,7 @@ INSERT OR IGNORE INTO state (rowid) VALUES (0);
 CREATE TABLE IF NOT EXISTS queue (
     -- can't use song as primary key, need to support duplicates
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    song        INTEGER, -- rowid in songs
+    song        INTEGER, -- rowid in songs table
     position    INTEGER,
     prio        INTEGER DEFAULT 0,
     range_start FLOAT,

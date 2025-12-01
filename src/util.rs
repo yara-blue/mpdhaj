@@ -18,12 +18,7 @@ pub trait WhatItertoolsIsMissing {
     where
         Self: Iterator<Item = Result<T, E>> + Sized,
     {
-        EnumerateOk {
-            iter: self,
-            last: 0,
-            phantom_t: PhantomData,
-            phantom_e: PhantomData,
-        }
+        EnumerateOk { iter: self, last: 0, phantom_t: PhantomData, phantom_e: PhantomData }
     }
 }
 

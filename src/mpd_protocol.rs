@@ -19,9 +19,7 @@ pub const VERSION: &str = "0.24.4";
 // TODO: in general these should be using URIs instead of Utf8PathBuf
 
 /// see <https://mpd.readthedocs.io/en/stable/protocol.html#command-reference>
-#[derive(
-    Debug, Default, strum_macros::VariantNames, strum_macros::EnumString, PartialEq,
-)]
+#[derive(Debug, Default, strum_macros::VariantNames, strum_macros::EnumString, PartialEq)]
 #[strum(serialize_all = "lowercase")]
 pub enum Command {
     // Query Status:
@@ -101,7 +99,7 @@ pub enum Command {
 
     // Interact with database:
     AlbumArt(Utf8PathBuf, u64), // offset in bytes
-    Count(Query, Option<Tag>), // TODO: the group field here is weird, query can be optional?
+    Count(Query, Option<Tag>),  // TODO: the group field here is weird, query can be optional?
     GetFingerprint(Utf8PathBuf),
     Find(Query, Option<Sort>, Option<Range>),
     FindAdd(Query, Option<Sort>, Option<Range>, Option<Position>),
@@ -135,15 +133,7 @@ pub enum Command {
     StickerDelete(StickerType, Utf8PathBuf, Option<String>),
     StickerList(StickerType, Utf8PathBuf),
     StickerFind(StickerType, Utf8PathBuf, String, Option<Sort>, Option<Range>),
-    StickerSearch(
-        StickerType,
-        Utf8PathBuf,
-        String,
-        Operator,
-        String,
-        Option<Sort>,
-        Option<Range>,
-    ),
+    StickerSearch(StickerType, Utf8PathBuf, String, Operator, String, Option<Sort>, Option<Range>),
     StickerNames,
     StickerTypes,
     StickerNamesTypes(Option<StickerType>),
@@ -244,15 +234,7 @@ pub struct List {
 
 /// see <https://mpd.readthedocs.io/en/stable/protocol.html#tags>
 #[derive(
-    Deserialize,
-    Serialize,
-    strum_macros::Display,
-    Debug,
-    Default,
-    PartialEq,
-    Eq,
-    Clone,
-    Copy,
+    Deserialize, Serialize, strum_macros::Display, Debug, Default, PartialEq, Eq, Clone, Copy,
 )]
 pub enum Tag {
     #[default]

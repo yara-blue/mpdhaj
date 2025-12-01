@@ -18,11 +18,7 @@ pub fn load_from_dir(path: &Utf8Path) -> Result<HashMap<PlaylistName, Vec<Utf8Pa
         .wrap_err("Could not read playlist dir")?
         .map_ok(|e| e.path())
         .filter_ok(|p| p.is_file())
-        .map_ok(|p| {
-            Utf8Path::from_path(&p)
-                .wrap_err("non-utf8 path")
-                .and_then(load_file)
-        })
+        .map_ok(|p| Utf8Path::from_path(&p).wrap_err("non-utf8 path").and_then(load_file))
         .flatten()
         .collect()
 }

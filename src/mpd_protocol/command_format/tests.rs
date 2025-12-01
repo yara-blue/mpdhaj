@@ -11,21 +11,14 @@ fn parse_commands() {
 #[test]
 fn parse_binary_limit() {
     color_eyre::install().unwrap();
-    assert_eq!(
-        Command::parse("binarylimit 42").unwrap(),
-        Command::BinaryLimit(42)
-    );
+    assert_eq!(Command::parse("binarylimit 42").unwrap(), Command::BinaryLimit(42));
 }
 
 #[test]
 fn parse_idle_with_args() {
     assert_eq!(
         Command::parse("idle database message mixer").unwrap(),
-        Command::Idle(vec![
-            SubSystem::Database,
-            SubSystem::Message,
-            SubSystem::Mixer
-        ])
+        Command::Idle(vec![SubSystem::Database, SubSystem::Message, SubSystem::Mixer])
     );
 }
 

@@ -87,11 +87,7 @@ pub(crate) struct Query(pub QueryNode);
 
 // TODO replace this with a PEG parser
 pub fn parse(line: &str) -> Result<Query> {
-    let tag_equals = line
-        .trim()
-        .trim_matches('"')
-        .trim_start_matches("((")
-        .trim_end_matches("))");
+    let tag_equals = line.trim().trim_matches('"').trim_start_matches("((").trim_end_matches("))");
     let (tag, needle) = tag_equals
         .split_once("==")
         .ok_or_eyre("Parsing any query except tag == thing is not yet supported")?;
