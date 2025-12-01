@@ -13,7 +13,10 @@ use tracing::{debug, info, warn};
 use crate::mpd_protocol::{self, PlaybackState, SubSystem, response_format};
 use crate::{mpd_protocol::Command, system::System};
 
-pub(crate) async fn handle_clients(system: Arc<std::sync::Mutex<System>>, port: u16) -> Result<()> {
+pub(crate) async fn handle_clients(
+    system: Arc<std::sync::Mutex<System>>,
+    port: u16,
+) -> Result<()> {
     let listener = TcpListener::bind(format!("0.0.0.0:{port}")).await?;
 
     loop {
@@ -46,10 +49,8 @@ async fn handle_client(
         .await
         .wrap_err("Could not send handshake to client")?;
 
-    while let Some(line) = reader
-        .next_line()
-        .await
-        .wrap_err("Could not get next line from client")?
+    while let Some(line) =
+        reader.next_line().await.wrap_err("Could not get next line from client")?
     {
         if line == "command_list_ok_begin" {
             handle_command_list(&mut reader, &mut writer, &system, true).await?;
@@ -141,9 +142,7 @@ async fn handle_idle(
 
     Ok(Some(match (next_line, next_event).race().await {
         Potato::MpdEvent(Some(sub_system)) => {
-            writer
-                .write_all(response_format::subsystem(sub_system).as_bytes())
-                .await?;
+            writer.write_all(response_format::subsystem(sub_system).as_bytes()).await?;
             let Some(line) = reader.next_line().await? else {
                 return Ok(None);
             };
@@ -171,15 +170,14 @@ async fn handle_idle(
             info!("client closed connection");
             return Ok(None);
         }
-        Potato::NextLine(Err(e)) => Err(e).wrap_err("Could not get next line from client")?,
+        Potato::NextLine(Err(e)) => {
+            Err(e).wrap_err("Could not get next line from client")?
+        }
     }))
 }
 
 async fn acknowledge(writer: &mut (impl AsyncWrite + 'static + Unpin)) -> Result<()> {
-    writer
-        .write_all(b"OK\n")
-        .await
-        .wrap_err("Failed to acknowledge cmd client")
+    writer.write_all(b"OK\n").await.wrap_err("Failed to acknowledge cmd client")
 }
 
 async fn acknowledge_cmd_list_entry(
@@ -191,18 +189,20 @@ async fn acknowledge_cmd_list_entry(
         .wrap_err("Failed to acknowledge cmd list item to client")
 }
 
-pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::Result<String> {
+pub fn perform_command(
+    request: Command,
+    system: &Mutex<System>,
+) -> color_eyre::Result<String> {
     use Command::*;
     let mut system = system.lock().expect("No thread should ever panic");
     Ok(match &request {
         BinaryLimit(_) => String::new(),
         Commands => supported_command_list(),
-        Status => {
-            response_format::to_string(&system.status()).wrap_err("Failed to get system status")?
-        }
-        PlaylistInfo(_pos_or_range) => {
-            response_format::to_string(&system.queue().wrap_err("Failed to get current queue")?)?
-        }
+        Status => response_format::to_string(&system.status())
+            .wrap_err("Failed to get system status")?,
+        PlaylistInfo(_pos_or_range) => response_format::to_string(
+            &system.queue().wrap_err("Failed to get current queue")?,
+        )?,
         ListPlayLists => response_format::to_string(&system.playlists())
             .wrap_err("Failed to get list of playlists")?,
         ListPlaylistInfo(playlist_name, _range) => response_format::to_string(
@@ -221,11 +221,7 @@ pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::
                 .list_all_in(&dir.clone().unwrap_or_default())
                 .wrap_err("Failed to list all songs")?,
         )?,
-        List(mpd_protocol::List {
-            tag_to_list,
-            query: _query,
-            group_by,
-        }) => {
+        List(mpd_protocol::List { tag_to_list, query: _query, group_by }) => {
             if !group_by.is_empty() {
                 return Err(eyre!("group_by argument in List command not yet supported"));
             }
@@ -265,12 +261,9 @@ pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::
             let id = system
                 .add_to_queue(song, position)
                 .wrap_err("Failed to add song to queue")
-                .with_note(|| format!("song path: {song:?}"))?;
-            if matches!(add, Add(..)) {
-                String::new()
-            } else {
-                format!("Id: {}", id.0)
-            }
+                .with_note(|| format!("song path: {song:?}"))
+                .with_note(|| format!("position: {position:?}"))?;
+            if matches!(add, Add(..)) { String::new() } else { format!("Id: {}", id.0) }
         }
         Find(query, _sort, _range) => response_format::to_string(
             &system
@@ -292,9 +285,7 @@ pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::
             String::new()
         }
         CurrentSong => response_format::to_string(
-            &system
-                .current_song()
-                .wrap_err("Could not get current song")?,
+            &system.current_song().wrap_err("Could not get current song")?,
         )?,
         Stats => todo!(), //{
         //     response_format::to_string(&system.stats().wrap_err("Could not gather statistics")?)?

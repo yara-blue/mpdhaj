@@ -62,7 +62,7 @@ grammar command() for str {
       "-" n:number::<i32>() { Position::Relative(-n) }
 
     rule uri() -> Utf8PathBuf = #{|input, pos| uri(input, pos) }
-    rule _() = quiet!{" "}
+    rule _() = quiet!{[' '|'\t']}
 
     rule subsystem() -> SubSystem
         = #{|input, pos| subsystem(input)}

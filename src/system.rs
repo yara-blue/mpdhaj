@@ -211,12 +211,11 @@ impl System {
             let pos: u32 = match pos {
                 Position::Absolute(pos) => *pos,
                 Position::Relative(offset) => {
-                    // TODO: handle +0/-0 correctly. probably just increment positive values by 1 at parse time
                     let current =
                         self.db.query_one("SELECT current FROM state", [], |row| {
                             row.get::<_, u32>(0)
                         })?;
-                    if -offset >= current as i32 {
+                    if -offset > current as i32 {
                         return Err(eyre!(
                             "Position {offset} is invalid, current position is {current}"
                         ));
@@ -225,11 +224,11 @@ impl System {
                 }
             };
             self.db.execute(
-                "UPDATE state SET position = position + 1 WHERE position >= ?1",
+                "UPDATE queue SET position = position + 1 WHERE position >= ?1",
                 [pos],
             )?;
             let mut stmt =
-                self.db.prepare("INSERT INTO queue (id, prev, next) VALUES (?1, ?2, 0)")?;
+                self.db.prepare("INSERT INTO queue (song, position) VALUES (?1, ?2)")?;
             Ok(stmt.insert([song, pos]).map(|n| SongId(n as u32))?)
         } else {
             let mut stmt = self.db.prepare(
