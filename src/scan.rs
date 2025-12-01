@@ -144,6 +144,8 @@ impl System {
         self.db.execute("DELETE FROM songs WHERE generation < ?1", [generation])?;
         let new_size =
             self.db.query_one("SELECT COUNT(*) FROM songs", [], |row| row.get::<_, usize>(0))?;
+        // TODO: clean up queue removing any entries without a valid songid and fix up "current" if
+        // removed songs were before it
         info!(
             "Scan complete: {new_size} songs - {cached} cached - {added} added - {updated} updated - {} removed",
             old_size - new_size

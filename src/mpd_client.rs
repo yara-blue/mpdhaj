@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 use color_eyre::Section;
@@ -5,13 +6,19 @@ use color_eyre::eyre::{OptionExt, eyre};
 use color_eyre::{Result, eyre::Context};
 use futures::FutureExt;
 use itertools::Itertools;
+use strum::{IntoEnumIterator, VariantNames};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::task;
 use tracing::{debug, info, warn};
 
-use crate::mpd_protocol::{self, PlaybackState, SubSystem, response_format};
+use crate::mpd_protocol::{self, PlaybackState, SubSystem, Tag, response_format};
 use crate::{mpd_protocol::Command, system::System};
+
+// stuff that's specific to a single client connection
+pub struct ClientState {
+    pub tag_types: HashSet<Tag>,
+}
 
 pub(crate) async fn handle_clients(system: Arc<std::sync::Mutex<System>>, port: u16) -> Result<()> {
     let listener = TcpListener::bind(format!("0.0.0.0:{port}")).await?;
@@ -45,15 +52,16 @@ async fn handle_client(
         .write_all(format!("OK MPD {}\n", mpd_protocol::VERSION).as_bytes())
         .await
         .wrap_err("Could not send handshake to client")?;
+    let mut state = ClientState { tag_types: Tag::iter().collect() };
 
     while let Some(line) =
         reader.next_line().await.wrap_err("Could not get next line from client")?
     {
         if line == "command_list_ok_begin" {
-            handle_command_list(&mut reader, &mut writer, &system, true).await?;
+            handle_command_list(&mut reader, &mut writer, &system, &mut state, true).await?;
             continue;
         } else if line == "command_list_begin" {
-            handle_command_list(&mut reader, &mut writer, &system, false).await?;
+            handle_command_list(&mut reader, &mut writer, &system, &mut state, false).await?;
             continue;
         }
 
@@ -68,7 +76,7 @@ async fn handle_client(
         } else {
             command
         };
-        let mut response = perform_command(command, &system)?;
+        let mut response = perform_command(command, &system, &mut state)?;
 
         response.push_str("OK\n");
         debug!("reply: {response}");
@@ -84,6 +92,7 @@ async fn handle_command_list(
     reader: &mut tokio::io::Lines<impl AsyncBufRead + Unpin>,
     writer: &mut (impl AsyncWrite + 'static + Unpin),
     system: &Arc<Mutex<System>>,
+    client_state: &mut ClientState,
     ack_each_command: bool,
 ) -> Result<()> {
     debug!("handling command list");
@@ -107,7 +116,7 @@ async fn handle_command_list(
         if matches!(command, Command::Idle(_) | Command::NoIdle) {
             return Err(eyre!("Idle and NoIde are not allowed in command lists"));
         }
-        let response = perform_command(command, system)?;
+        let response = perform_command(command, system, client_state)?;
         command_executed += 1;
 
         debug!("reply: {response}");
@@ -181,7 +190,11 @@ async fn acknowledge_cmd_list_entry(
     writer.write_all(b"list_OK\n").await.wrap_err("Failed to acknowledge cmd list item to client")
 }
 
-pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::Result<String> {
+pub fn perform_command(
+    request: Command,
+    system: &Mutex<System>,
+    client_state: &mut ClientState,
+) -> color_eyre::Result<String> {
     use Command::*;
     let mut system = system.lock().expect("No thread should ever panic");
     Ok(match &request {
@@ -277,9 +290,17 @@ pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::
         CurrentSong => response_format::to_string(
             &system.current_song().wrap_err("Could not get current song")?,
         )?,
-        Stats => todo!(), //{
-        //     response_format::to_string(&system.stats().wrap_err("Could not gather statistics")?)?
-        // }
+
+        TagTypesEnable(tags) => {
+            client_state.tag_types.extend(tags);
+            String::new()
+        }
+        TagTypesClear => {
+            client_state.tag_types.clear();
+            String::new()
+        }
+
+        Stats => todo!(),
         Idle(_) | NoIdle => panic!("These should be handled in the outer loop"),
         Ping => "OK".to_owned(),
         other => unimplemented!("{other:?}"),
@@ -287,7 +308,6 @@ pub fn perform_command(request: Command, system: &Mutex<System>) -> color_eyre::
 }
 
 fn supported_command_list() -> String {
-    use strum::VariantNames;
     let mut list = Command::VARIANTS
         .iter()
         .map(|name| name.replace("-", ""))

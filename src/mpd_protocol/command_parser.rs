@@ -6,7 +6,7 @@ use itertools::Itertools;
 use peg::{RuleResult, RuleResult::*};
 use std::str::FromStr;
 
-use crate::mpd_protocol::{Command, Position, SubSystem};
+use crate::mpd_protocol::{Command, Command::*, Position, SubSystem, Tag};
 
 peg::parser! {
 grammar command() for str {
@@ -32,8 +32,9 @@ grammar command() for str {
     = "todo" { todo!() }
     rule stickers() -> Command
     = "todo" { todo!() }
-    rule connection_settings() -> Command
-    = "binarylimit " n:number() { Command::BinaryLimit(n) }
+    rule connection_settings() -> Command =
+        "binarylimit" _ n:number() { Command::BinaryLimit(n) } /
+        "tagtypes" _ t:tagtypes() {t}
     rule partitions() -> Command
     = "todo" { todo!() }
     rule audio_outputs() -> Command
@@ -46,8 +47,17 @@ grammar command() for str {
 
     // manipulate queue
     rule add() -> Command
-    = "add" _ uri:uri() _? pos:position()? { Command::Add(uri, pos) }
+    = "add" _ uri:uri() pos:(_ pos:position() {pos})? { Command::Add(uri, pos) }
 
+    // connection settings
+    rule tagtypes() -> Command =
+        // ???? why does this one have quotes but not the others, maybe we need a real tokenizer...
+        "\"clear\"" { TagTypesClear } /
+        "all" { TagTypesAll } /
+        "available" { TagTypesAvailable } /
+        "enable" _ types:(tag() ++ _) { TagTypesEnable(types) } /
+        "disable" _ types:(tag() ++ _) { TagTypesEnable(types) } /
+        "reset" _ types:(tag() ++ _) { TagTypesEnable(types) }
 
     // util
     rule list<T>(x: rule<T>) -> Vec<T>
@@ -55,6 +65,10 @@ grammar command() for str {
 
     rule number<T: std::str::FromStr>() -> T
     = s:$(['0'..='9']+) {? s.parse().or(Err("number")) }
+    rule name() -> String = #{ string }
+    rule tag() -> Tag = #{ try_from_str }
+    rule subsystem() -> SubSystem = #{ try_from_str }
+    // = s:$(['A'..='Z'|'a'..='z'](['A'..='Z'|'a'..='z'|'0'..='9']+)) { s.to_owned() }
 
     rule position() -> Position
     =     n:number() { Position::Absolute(n) } /
@@ -63,21 +77,25 @@ grammar command() for str {
 
     rule uri() -> Utf8PathBuf = #{ uri }
     rule _() = quiet!{[' '|'\t']}
-
-    rule subsystem() -> SubSystem
-        = #{|input, pos| subsystem(input)}
 }
 }
 
-fn subsystem(input: &str) -> RuleResult<SubSystem> {
-    if let Ok(v) = SubSystem::from_str(input) { Matched(input.len(), v) } else { Failed }
+fn try_from_str<T: FromStr>(input: &str, pos: usize) -> RuleResult<T> {
+    let temp = &input[pos..];
+    let temp = temp.split_once(' ').map(|t| t.0).unwrap_or(temp);
+    if let Ok(v) = T::from_str(temp) { Matched(temp.len() + pos, v) } else { Failed }
 }
 
 fn uri(input: &str, pos: usize) -> RuleResult<Utf8PathBuf> {
     match possibly_quoted_string(&input[pos..]) {
-        Matched(consumed, s) => {
-            Matched(consumed + pos, Utf8PathBuf::from_str(&s).expect("utf8 string"))
-        }
+        Matched(consumed, s) => Matched(consumed + pos, Utf8PathBuf::from(s)),
+        Failed => Failed,
+    }
+}
+
+fn string(input: &str, pos: usize) -> RuleResult<String> {
+    match possibly_quoted_string(&input[pos..]) {
+        Matched(consumed, s) => Matched(consumed + pos, s),
         Failed => Failed,
     }
 }

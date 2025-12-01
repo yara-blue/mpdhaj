@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS state (
     generation  INTEGER DEFAULT 0,
 
     -- position in queue
-    current     INTEGER DEFAULT 0,
+    current     INTEGER DEFAULT 0, -- TODO: also store songid of current
 
     repeat      BOOLEAN DEFAULT 0,
     random      BOOLEAN DEFAULT 0,

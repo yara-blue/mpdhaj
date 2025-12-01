@@ -378,6 +378,8 @@ mod tests {
         color_eyre::install().unwrap();
         setup_tracing();
 
+        // TODO: use in-memory database for tests, pass connection into system::new instead of creating in
+        // there. also disable scanning?
         let system = System::new("~/Music".into(), None).unwrap();
         system
             .add_to_queue(
@@ -390,34 +392,4 @@ mod tests {
         let first = &queue.0[0];
         assert!(first.path.as_str().contains("Sims"));
     }
-
-    // #[test]
-    // fn wtfwhyyyyyy() {
-    //     let mut system = System::new("~/Music".into(), None).unwrap();
-    //     system.db.queue().push(&SongId(1)).unwrap();
-
-    //     dbg!(system.db.queue().get(0).unwrap());
-    //     dbg!(system.db.queue().iter().collect_vec());
-    // }
 }
-
-/*
-running 1 test
-[src/system.rs:414:9] system.db.queue().get(0).unwrap() = Some(
-    SongId(
-        1,
-    ),
-)
-[src/system.rs:415:9] system.db.queue().iter().collect_vec() = [
-    Ok(
-        SongId(
-            1,
-        ),
-    ),
-    Ok(
-        SongId(
-            1,
-        ),
-    ),
-]
- */

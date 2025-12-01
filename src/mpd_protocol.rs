@@ -10,6 +10,7 @@ use camino::Utf8PathBuf;
 use jiff::Timestamp;
 use rodio::{ChannelCount, SampleRate, nz};
 use serde::{Deserialize, Serialize};
+use strum::{Display, EnumIter, EnumString, VariantNames};
 use tracing::instrument;
 
 use crate::{mpd_protocol::query::Query, playlist::PlaylistName};
@@ -19,7 +20,7 @@ pub const VERSION: &str = "0.24.4";
 // TODO: in general these should be using URIs instead of Utf8PathBuf
 
 /// see <https://mpd.readthedocs.io/en/stable/protocol.html#command-reference>
-#[derive(Debug, Default, strum_macros::VariantNames, strum_macros::EnumString, PartialEq)]
+#[derive(Debug, Default, VariantNames, EnumString, PartialEq)]
 #[strum(serialize_all = "lowercase")]
 pub enum Command {
     // Query Status:
@@ -145,12 +146,12 @@ pub enum Command {
     Ping,
     BinaryLimit(u64),
     TagTypes,
-    TagTypesDisable(Vec<String>),
-    TagTypesEnable(Vec<String>),
+    TagTypesDisable(Vec<Tag>),
+    TagTypesEnable(Vec<Tag>),
     TagTypesClear,
     TagTypesAll,
     TagTypesAvailable,
-    TagTypesReset(Vec<String>),
+    TagTypesReset(Vec<Tag>),
     Protocol,
     ProtocolDisable(Vec<String>),
     ProtocolEnable(Vec<String>),
@@ -190,9 +191,7 @@ pub enum Command {
     SendMessage(ChannelName, String),
 }
 
-#[derive(
-    Debug, Deserialize, Serialize, PartialEq, Eq, Hash, strum::EnumIter, strum::EnumString,
-)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Hash, EnumIter, EnumString)]
 pub enum SubSystem {
     /// the song database has been modified after update.
     Database,
@@ -234,7 +233,18 @@ pub struct List {
 
 /// see <https://mpd.readthedocs.io/en/stable/protocol.html#tags>
 #[derive(
-    Deserialize, Serialize, strum_macros::Display, Debug, Default, PartialEq, Eq, Clone, Copy,
+    Deserialize,
+    Serialize,
+    Display,
+    EnumIter,
+    EnumString,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Clone,
+    Copy,
+    Hash,
 )]
 pub enum Tag {
     #[default]
