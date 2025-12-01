@@ -19,7 +19,9 @@ pub const VERSION: &str = "0.24.4";
 // TODO: in general these should be using URIs instead of Utf8PathBuf
 
 /// see <https://mpd.readthedocs.io/en/stable/protocol.html#command-reference>
-#[derive(Debug, Default, strum_macros::VariantNames, strum_macros::EnumString, PartialEq)]
+#[derive(
+    Debug, Default, strum_macros::VariantNames, strum_macros::EnumString, PartialEq,
+)]
 #[strum(serialize_all = "lowercase")]
 pub enum Command {
     // Query Status:
@@ -99,7 +101,7 @@ pub enum Command {
 
     // Interact with database:
     AlbumArt(Utf8PathBuf, u64), // offset in bytes
-    Count(Query, Option<Tag>),  // TODO: the group field here is weird, query can be optional?
+    Count(Query, Option<Tag>), // TODO: the group field here is weird, query can be optional?
     GetFingerprint(Utf8PathBuf),
     Find(Query, Option<Sort>, Option<Range>),
     FindAdd(Query, Option<Sort>, Option<Range>, Option<Position>),
@@ -114,13 +116,7 @@ pub enum Command {
     ReadPicture(Utf8PathBuf, u64), // offset in bytes
     Search(Query, Option<Sort>, Option<Range>),
     SearchAdd(Query, Option<Sort>, Option<Range>, Option<Position>),
-    SearchAddPl(
-        PlaylistName,
-        Query,
-        Option<Sort>,
-        Option<Range>,
-        Option<Position>,
-    ),
+    SearchAddPl(PlaylistName, Query, Option<Sort>, Option<Range>, Option<Position>),
     SearchCount(Query, Option<Tag>),
     Update(Option<Utf8PathBuf>),
     Rescan(Option<Utf8PathBuf>),
@@ -138,13 +134,7 @@ pub enum Command {
     StickerDec(StickerType, Utf8PathBuf, String, String),
     StickerDelete(StickerType, Utf8PathBuf, Option<String>),
     StickerList(StickerType, Utf8PathBuf),
-    StickerFind(
-        StickerType,
-        Utf8PathBuf,
-        String,
-        Option<Sort>,
-        Option<Range>,
-    ),
+    StickerFind(StickerType, Utf8PathBuf, String, Option<Sort>, Option<Range>),
     StickerSearch(
         StickerType,
         Utf8PathBuf,
@@ -254,7 +244,15 @@ pub struct List {
 
 /// see <https://mpd.readthedocs.io/en/stable/protocol.html#tags>
 #[derive(
-    Deserialize, Serialize, strum_macros::Display, Debug, Default, PartialEq, Eq, Clone, Copy,
+    Deserialize,
+    Serialize,
+    strum_macros::Display,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Clone,
+    Copy,
 )]
 pub enum Tag {
     #[default]
@@ -312,10 +310,7 @@ pub struct PlayList {
 }
 impl PlayList {
     pub(crate) fn from_name(name: PlaylistName) -> PlayList {
-        PlayList {
-            playlist: name,
-            last_modified: jiff::Timestamp::new(42, 42).unwrap(),
-        }
+        PlayList { playlist: name, last_modified: jiff::Timestamp::new(42, 42).unwrap() }
     }
 }
 
@@ -430,11 +425,7 @@ impl PlaylistEntry {
             path: song.path,
             last_modified: Timestamp::constant(0, 0),
             added: Timestamp::constant(0, 0),
-            format: AudioParams {
-                samplerate: nz!(42),
-                bits: 16,
-                channels: nz!(42),
-            },
+            format: AudioParams { samplerate: nz!(42), bits: 16, channels: nz!(42) },
             artist: song.artist.unwrap_or("unknown".to_owned()),
             album_artist: "todo".to_string(),
             title: song.title.unwrap_or("unknown".to_owned()),
@@ -535,6 +526,8 @@ impl Default for TimeOrOffset {
 #[derive(Deserialize, Debug, Copy, Clone, PartialEq)]
 pub enum Position {
     Absolute(u32),
+    // in mpd, +0 means after current and -0 means before current, for Relative(n)
+    // zero means before current, 1 means after current, we parse "+n" as "Relative(n+1)"
     Relative(i32),
 }
 
@@ -552,10 +545,7 @@ pub struct Range {
 
 impl Default for Range {
     fn default() -> Self {
-        Self {
-            start: 0,
-            end: None,
-        }
+        Self { start: 0, end: None }
     }
 }
 

@@ -114,11 +114,9 @@ impl System {
     }
 
     pub async fn rescan(&self) -> Result<()> {
-        let generation = self
-            .db
-            .query_one("SELECT generation FROM state", [], |row| {
-                Ok(row.get::<_, u32>(0)? + 1)
-            })?;
+        let generation = self.db.query_one("SELECT generation FROM state", [], |row| {
+            Ok(row.get::<_, u32>(0)? + 1)
+        })?;
         let music_dir = &self.music_dir;
         let (mut cached, mut added, mut updated) = (0, 0, 0);
         for e in walkdir::WalkDir::new(music_dir) {
@@ -137,16 +135,14 @@ impl System {
                 }
             }
         }
-        let old_size = self.db.query_one("SELECT COUNT(*) FROM songs", [], |row| {
-            row.get::<_, usize>(0)
-        })?;
-        self.db
-            .execute("UPDATE state SET generation = ?1", [generation])?;
-        self.db
-            .execute("DELETE FROM songs WHERE generation < ?1", [generation])?;
-        let new_size = self.db.query_one("SELECT COUNT(*) FROM songs", [], |row| {
-            row.get::<_, usize>(0)
-        })?;
+        let old_size = self
+            .db
+            .query_one("SELECT COUNT(*) FROM songs", [], |row| row.get::<_, usize>(0))?;
+        self.db.execute("UPDATE state SET generation = ?1", [generation])?;
+        self.db.execute("DELETE FROM songs WHERE generation < ?1", [generation])?;
+        let new_size = self
+            .db
+            .query_one("SELECT COUNT(*) FROM songs", [], |row| row.get::<_, usize>(0))?;
         info!(
             "Scan complete: {new_size} songs - {cached} cached - {added} added - {updated} updated - {} removed",
             old_size - new_size

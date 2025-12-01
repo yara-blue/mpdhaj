@@ -15,32 +15,12 @@ use std::time::Duration;
 
 use crate::mpd_protocol::query::Query;
 use crate::mpd_protocol::{
-    self, AudioParams, FindResult, ListItem, PlayList, PlaybackState, PlaylistEntry, PlaylistId,
-    PlaylistInfo, Position, SongId, SongNumber, SubSystem, Tag, Volume,
+    self, AudioParams, FindResult, ListItem, PlayList, PlaybackState, PlaylistEntry,
+    PlaylistId, PlaylistInfo, Position, SongId, SongNumber, SubSystem, Tag, Volume,
 };
 use crate::playlist::{self, PlaylistName};
 
 mod query;
-
-// If this ever gets too slow we can see what we need to cache
-#[dbstruct::dbstruct(db=sled)]
-pub struct State {
-    #[dbstruct(Default = "PlaybackState::Stop")]
-    playing: PlaybackState,
-    queue: Vec<SongId>,
-
-    /// All songs currently 'scanned'. Scanning MUST occur before anything
-    /// else atm. The `SongId` is the index in this vector.
-    ///
-    /// TODO: make it so scanning happens non stop in the background
-    /// (using io-notify and friends).
-    library: Vec<Song>,
-
-    // just rebuild this on rescan
-    song_id_from_path: HashMap<Utf8PathBuf, SongId>,
-
-    last_db_update: Option<jiff::Timestamp>,
-}
 
 pub struct System {
     pub db: Connection,
@@ -56,6 +36,7 @@ impl System {
     pub fn new(music_dir: Utf8PathBuf, playlist_dir: Option<Utf8PathBuf>) -> Result<Self> {
         let dirs = etcetera::choose_base_strategy()?;
         let cache = dirs.cache_dir().join("mpdhaj").join("state.sqlite");
+        std::fs::create_dir_all(cache.parent().unwrap())?;
         let db = Connection::open(cache)?;
         db.execute_batch(include_str!("tables.sql"))?;
         let playlist_dir = playlist_dir.unwrap_or_else(|| music_dir.join("playlists"));
@@ -66,28 +47,6 @@ impl System {
                 Default::default()
             }
         };
-        // dbg!(state.queue().len());
-        // dbg!(
-        //     state
-        //         .ds
-        //         .iter()
-        //         .keys()
-        //         .filter_ok(|key| key.starts_with(&[3]))
-        //         .collect_vec()
-        // );
-
-        // dbg!(
-        //     ::dbstruct::traits::data_store::Ordered::get_lt(
-        //         &state.ds,
-        //         &::dbstruct::wrapper::VecPrefixed::max(3),
-        //     )?
-        //     .map(|(key, _): (::dbstruct::wrapper::VecPrefixed, SongId)| dbg!(key))
-        //     .filter(|key| key.prefix() == 3)
-        //     .map(|key| key.index() + 1) // a vecs len is index + 1
-        //     .unwrap_or(0)
-        // );
-
-        // state.queue().clear().unwrap();
         Ok(System {
             db,
             music_dir,
@@ -116,11 +75,7 @@ impl System {
             elapsed: Duration::from_secs(2),
             bitrate: 320_000,
             duration: Duration::from_secs(320),
-            audio: AudioParams {
-                samplerate: nz!(44100),
-                bits: 24,
-                channels: nz!(2),
-            },
+            audio: AudioParams { samplerate: nz!(44100), bits: 24, channels: nz!(2) },
             error: None,
             nextsong: SongNumber(1),
             nextsongid: SongId(1),
@@ -246,16 +201,21 @@ impl System {
         rx
     }
 
-    pub fn add_to_queue(&self, path: &Utf8Path, position: &Option<Position>) -> Result<SongId> {
+    pub fn add_to_queue(
+        &self,
+        path: &Utf8Path,
+        position: &Option<Position>,
+    ) -> Result<SongId> {
         let song = self.song_number_from_path(path)?;
         if let Some(pos) = position {
             let pos: u32 = match pos {
                 Position::Absolute(pos) => *pos,
                 Position::Relative(offset) => {
                     // TODO: handle +0/-0 correctly. probably just increment positive values by 1 at parse time
-                    let current = self
-                        .db
-                        .query_one("SELECT current FROM state", [], |row| row.get::<_, u32>(0))?;
+                    let current =
+                        self.db.query_one("SELECT current FROM state", [], |row| {
+                            row.get::<_, u32>(0)
+                        })?;
                     if -offset >= current as i32 {
                         return Err(eyre!(
                             "Position {offset} is invalid, current position is {current}"
@@ -268,9 +228,8 @@ impl System {
                 "UPDATE state SET position = position + 1 WHERE position >= ?1",
                 [pos],
             )?;
-            let mut stmt = self
-                .db
-                .prepare("INSERT INTO queue (id, prev, next) VALUES (?1, ?2, 0)")?;
+            let mut stmt =
+                self.db.prepare("INSERT INTO queue (id, prev, next) VALUES (?1, ?2, 0)")?;
             Ok(stmt.insert([song, pos]).map(|n| SongId(n as u32))?)
         } else {
             let mut stmt = self.db.prepare(
@@ -306,9 +265,8 @@ impl System {
     }
 
     pub fn current_song(&self) -> Result<Option<PlaylistEntry>> {
-        let Ok(pos): Result<u32, _> = self
-            .db
-            .query_one("SELECT current FROM state", [], |row| row.get(0))
+        let Ok(pos): Result<u32, _> =
+            self.db.query_one("SELECT current FROM state", [], |row| row.get(0))
         else {
             return Ok(None);
         };
