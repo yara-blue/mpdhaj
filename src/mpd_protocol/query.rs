@@ -5,7 +5,7 @@ use color_eyre::{
 };
 use rodio::{ChannelCount, SampleRate};
 
-use crate::mpd_protocol::{Tag, command_format};
+use crate::mpd_protocol::Tag;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Filter {
@@ -85,35 +85,19 @@ impl Default for QueryNode {
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct Query(pub QueryNode);
 
-// TODO replace this with a PEG parser
-pub fn parse(line: &str) -> Result<Query> {
-    let tag_equals = line.trim().trim_matches('"').trim_start_matches("((").trim_end_matches("))");
-    let (tag, needle) = tag_equals
-        .split_once("==")
-        .ok_or_eyre("Parsing any query except tag == thing is not yet supported")?;
-    let tag: Tag = command_format::from_str(tag.trim())
-        .wrap_err("Could not deserialize tag")
-        .with_note(|| format!("tag was: {tag}"))?;
 
-    todo!()
-    // Ok(Query(Filter::TagEqual {
-    //     tag,
-    //     needle: needle.trim().trim_matches('\'').to_string(),
-    // }))
-}
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn album_equals() {
-        assert_eq!(
-            parse("((Album == 'todo'))").unwrap(),
-            Query(QueryNode::Filter(Filter::TagEqual {
-                tag: Tag::Album,
-                needle: "todo".to_string()
-            }))
-        )
-    }
-}
+//     #[test]
+//     fn album_equals() {
+//         assert_eq!(
+//             parse("((Album == 'todo'))").unwrap(),
+//             Query(QueryNode::Filter(Filter::TagEqual {
+//                 tag: Tag::Album,
+//                 needle: "todo".to_string()
+//             }))
+//         )
+//     }
+// }

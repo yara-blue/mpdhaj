@@ -10,7 +10,7 @@ use strum::{IntoEnumIterator, VariantNames};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::task;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, instrument, warn};
 
 use crate::mpd_protocol::{self, PlaybackState, SubSystem, Tag, response_format};
 use crate::{mpd_protocol::Command, system::System};
@@ -52,10 +52,14 @@ async fn handle_client(
         .write_all(format!("OK MPD {}\n", mpd_protocol::VERSION).as_bytes())
         .await
         .wrap_err("Could not send handshake to client")?;
-    let mut state = ClientState { tag_types: Tag::iter().collect() };
+    let mut state = ClientState {
+        tag_types: Tag::iter().collect(),
+    };
 
-    while let Some(line) =
-        reader.next_line().await.wrap_err("Could not get next line from client")?
+    while let Some(line) = reader
+        .next_line()
+        .await
+        .wrap_err("Could not get next line from client")?
     {
         if line == "command_list_ok_begin" {
             handle_command_list(&mut reader, &mut writer, &system, &mut state, true).await?;
@@ -148,7 +152,9 @@ async fn handle_idle(
 
     Ok(Some(match (next_line, next_event).race().await {
         Potato::MpdEvent(Some(sub_system)) => {
-            writer.write_all(response_format::subsystem(sub_system).as_bytes()).await?;
+            writer
+                .write_all(response_format::subsystem(sub_system).as_bytes())
+                .await?;
             let Some(line) = reader.next_line().await? else {
                 return Ok(None);
             };
@@ -181,15 +187,22 @@ async fn handle_idle(
 }
 
 async fn acknowledge(writer: &mut (impl AsyncWrite + 'static + Unpin)) -> Result<()> {
-    writer.write_all(b"OK\n").await.wrap_err("Failed to acknowledge cmd client")
+    writer
+        .write_all(b"OK\n")
+        .await
+        .wrap_err("Failed to acknowledge cmd client")
 }
 
 async fn acknowledge_cmd_list_entry(
     writer: &mut (impl AsyncWrite + 'static + Unpin),
 ) -> Result<()> {
-    writer.write_all(b"list_OK\n").await.wrap_err("Failed to acknowledge cmd list item to client")
+    writer
+        .write_all(b"list_OK\n")
+        .await
+        .wrap_err("Failed to acknowledge cmd list item to client")
 }
 
+#[instrument(skip(system, client_state), ret)]
 pub fn perform_command(
     request: Command,
     system: &Mutex<System>,
@@ -224,7 +237,12 @@ pub fn perform_command(
                 .list_all_in(&dir.clone().unwrap_or_default())
                 .wrap_err("Failed to list all songs")?,
         )?,
-        List(mpd_protocol::List { tag_to_list, query: _query, group_by }) => {
+        List(mpd_protocol::List {
+            tag_to_list,
+            query: _,
+            group_by,
+            window: _,
+        }) => {
             if !group_by.is_empty() {
                 return Err(eyre!("group_by argument in List command not yet supported"));
             }
@@ -266,7 +284,11 @@ pub fn perform_command(
                 .wrap_err("Failed to add song to queue")
                 .with_note(|| format!("song path: {song:?}"))
                 .with_note(|| format!("position: {position:?}"))?;
-            if matches!(add, Add(..)) { String::new() } else { format!("Id: {}", id.0) }
+            if matches!(add, Add(..)) {
+                String::new()
+            } else {
+                format!("Id: {}", id.0)
+            }
         }
         Find(query, _sort, _range) => response_format::to_string(
             &system
@@ -288,7 +310,9 @@ pub fn perform_command(
             String::new()
         }
         CurrentSong => response_format::to_string(
-            &system.current_song().wrap_err("Could not get current song")?,
+            &system
+                .current_song()
+                .wrap_err("Could not get current song")?,
         )?,
 
         TagTypesEnable(tags) => {

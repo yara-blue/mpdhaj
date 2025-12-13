@@ -6,7 +6,11 @@ use itertools::Itertools;
 use peg::{RuleResult, RuleResult::*};
 use std::str::FromStr;
 
-use crate::mpd_protocol::{Command, Command::*, Position, SubSystem, Tag};
+use crate::mpd_protocol::{
+    Command::{self, *},
+    List, Position, SubSystem, Tag,
+    query::Query,
+};
 
 peg::parser! {
 grammar command() for str {
@@ -25,7 +29,7 @@ grammar command() for str {
     rule manipulate_queue() -> Command
     = add()
     rule manipulate_playlist() -> Command
-    = "todo" { todo!() }
+    = list_tag()
     rule interact_with_database() -> Command
     = "todo" { todo!() }
     rule mounts_and_neighbors() -> Command
@@ -48,6 +52,21 @@ grammar command() for str {
     // manipulate queue
     rule add() -> Command
     = "add" _ uri:uri() pos:(_ pos:position() {pos})? { Command::Add(uri, pos) }
+
+    rule list_tag() -> Command
+        = "list" _ tag_to_list:tag() query:(_ query:filter() {query})? group_by:(_ "group" group_by:tag() {group_by})* window:(_ window:window() {window})? {
+        Command::List(List { tag_to_list, query, group_by, window })
+    }
+
+    rule window() -> core::ops::Range<u32>
+    = start:number() ":" end:number() {
+        start..end
+    }
+
+    rule filter() -> Query
+    = "todo" {
+        todo!()
+    }
 
     // connection settings
     rule tagtypes() -> Command =
@@ -83,7 +102,11 @@ grammar command() for str {
 fn try_from_str<T: FromStr>(input: &str, pos: usize) -> RuleResult<T> {
     let temp = &input[pos..];
     let temp = temp.split_once(' ').map(|t| t.0).unwrap_or(temp);
-    if let Ok(v) = T::from_str(temp) { Matched(temp.len() + pos, v) } else { Failed }
+    if let Ok(v) = T::from_str(temp) {
+        Matched(temp.len() + pos, v)
+    } else {
+        Failed
+    }
 }
 
 fn uri(input: &str, pos: usize) -> RuleResult<Utf8PathBuf> {
@@ -134,17 +157,22 @@ pub fn parse(s: &str) -> color_eyre::Result<Command> {
     match result {
         Ok(c) => Ok(c),
         Err(e) => {
-            Report::build(ReportKind::Error, e.location.column - 1..e.location.column - 1)
-                .with_message("Could not parse")
-                .with_label(
-                    Label::new(dbg!(e.location.column - 1)..e.location.column - 1)
-                        .with_message(format!("Expected one of {}", e.expected)),
-                )
-                .finish()
-                .print(Source::from(s))
-                .unwrap();
+            Report::build(
+                ReportKind::Error,
+                e.location.column - 1..e.location.column - 1,
+            )
+            .with_message("Could not parse")
+            .with_label(
+                Label::new(dbg!(e.location.column - 1)..e.location.column - 1)
+                    .with_message(format!("Expected one of {}", e.expected)),
+            )
+            .finish()
+            .print(Source::from(s))
+            .unwrap();
 
-            Err(e).wrap_err("Could not parse line").with_note(|| format!("line was: {s}"))
+            Err(e)
+                .wrap_err("Could not parse line")
+                .with_note(|| format!("line was: {s}"))
         }
     }
 }

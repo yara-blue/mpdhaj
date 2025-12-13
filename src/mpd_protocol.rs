@@ -1,4 +1,4 @@
-pub mod command_format;
+// pub mod command_format;
 pub mod command_parser;
 #[allow(unused)]
 pub mod query;
@@ -115,7 +115,13 @@ pub enum Command {
     ReadPicture(Utf8PathBuf, u64), // offset in bytes
     Search(Query, Option<Sort>, Option<Range>),
     SearchAdd(Query, Option<Sort>, Option<Range>, Option<Position>),
-    SearchAddPl(PlaylistName, Query, Option<Sort>, Option<Range>, Option<Position>),
+    SearchAddPl(
+        PlaylistName,
+        Query,
+        Option<Sort>,
+        Option<Range>,
+        Option<Position>,
+    ),
     SearchCount(Query, Option<Tag>),
     Update(Option<Utf8PathBuf>),
     Rescan(Option<Utf8PathBuf>),
@@ -133,8 +139,22 @@ pub enum Command {
     StickerDec(StickerType, Utf8PathBuf, String, String),
     StickerDelete(StickerType, Utf8PathBuf, Option<String>),
     StickerList(StickerType, Utf8PathBuf),
-    StickerFind(StickerType, Utf8PathBuf, String, Option<Sort>, Option<Range>),
-    StickerSearch(StickerType, Utf8PathBuf, String, Operator, String, Option<Sort>, Option<Range>),
+    StickerFind(
+        StickerType,
+        Utf8PathBuf,
+        String,
+        Option<Sort>,
+        Option<Range>,
+    ),
+    StickerSearch(
+        StickerType,
+        Utf8PathBuf,
+        String,
+        Operator,
+        String,
+        Option<Sort>,
+        Option<Range>,
+    ),
     StickerNames,
     StickerTypes,
     StickerNamesTypes(Option<StickerType>),
@@ -227,8 +247,11 @@ pub enum SubSystem {
 pub struct List {
     // NOTE we can not parse mpd filters yet
     pub tag_to_list: Tag,
-    pub query: Query,
+    pub query: Option<Query>,
     pub group_by: Vec<Tag>,
+    // used for sending only part of the
+    // query answer
+    pub window: Option<core::ops::Range<u32>>,
 }
 
 /// see <https://mpd.readthedocs.io/en/stable/protocol.html#tags>
@@ -302,7 +325,10 @@ pub struct PlayList {
 }
 impl PlayList {
     pub(crate) fn from_name(name: PlaylistName) -> PlayList {
-        PlayList { playlist: name, last_modified: jiff::Timestamp::new(42, 42).unwrap() }
+        PlayList {
+            playlist: name,
+            last_modified: jiff::Timestamp::new(42, 42).unwrap(),
+        }
     }
 }
 
@@ -338,6 +364,7 @@ pub struct SongNumber(pub u32);
 pub struct PosInPlaylist(u32);
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
+#[serde(rename_all = "lowercase")]
 pub enum PlaybackState {
     Play,
     Pause,
@@ -417,7 +444,11 @@ impl PlaylistEntry {
             path: song.path,
             last_modified: Timestamp::constant(0, 0),
             added: Timestamp::constant(0, 0),
-            format: AudioParams { samplerate: nz!(42), bits: 16, channels: nz!(42) },
+            format: AudioParams {
+                samplerate: nz!(42),
+                bits: 16,
+                channels: nz!(42),
+            },
             artist: song.artist.unwrap_or("unknown".to_owned()),
             album_artist: "todo".to_string(),
             title: song.title.unwrap_or("unknown".to_owned()),
@@ -529,7 +560,7 @@ impl Default for Position {
     }
 }
 
-#[derive(Deserialize, Debug, Copy, Clone, PartialEq, Default)]
+#[derive(Deserialize, Debug, Copy, Clone, PartialEq, Default, Eq)]
 pub struct Range {
     start: u32,
     end: Option<u32>,
@@ -577,7 +608,7 @@ enum SortType {
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq, Hash)]
 pub struct ChannelName(pub String);
 
-#[derive(Deserialize, Default, Debug, PartialEq)]
+#[derive(Default, Debug, PartialEq)]
 pub enum StickerType {
     Song,
     #[default]
