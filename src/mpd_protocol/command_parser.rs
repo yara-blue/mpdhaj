@@ -8,7 +8,7 @@ use std::str::FromStr;
 
 use crate::mpd_protocol::{
     Command::{self, *},
-    List, Position, SubSystem, Tag,
+    List, Position, SongId, SubSystem, Tag,
     query::Query,
 };
 
@@ -27,11 +27,11 @@ grammar command() for str {
     rule control_playback() -> Command
     = "todo" { todo!() }
     rule manipulate_queue() -> Command
-    = add()
+    = add() / playlistid()
     rule manipulate_playlist() -> Command
-    = list_tag()
-    rule interact_with_database() -> Command
     = "todo" { todo!() }
+    rule interact_with_database() -> Command
+    = list_tag() / lsinfo()
     rule mounts_and_neighbors() -> Command
     = "todo" { todo!() }
     rule stickers() -> Command
@@ -50,9 +50,15 @@ grammar command() for str {
 
 
     // manipulate queue
+    rule playlistid() -> Command
+    = "playlistid" id:(_ id:song_id() {id})? { Command::PlaylistId(id) }
     rule add() -> Command
     = "add" _ uri:uri() pos:(_ pos:position() {pos})? { Command::Add(uri, pos) }
 
+    rule lsinfo() -> Command
+        = "lsinfo" uri:(_ uri:uri() {uri})? {
+        Command::ListAll(uri)
+    }
     rule list_tag() -> Command
         = "list" _ tag_to_list:tag() query:(_ query:filter() {query})? group_by:(_ "group" group_by:tag() {group_by})* window:(_ window:window() {window})? {
         Command::List(List { tag_to_list, query, group_by, window })
@@ -89,6 +95,8 @@ grammar command() for str {
     rule subsystem() -> SubSystem = #{ try_from_str }
     // = s:$(['A'..='Z'|'a'..='z'](['A'..='Z'|'a'..='z'|'0'..='9']+)) { s.to_owned() }
 
+    rule song_id() -> SongId
+    = id:number() { SongId(id) }
     rule position() -> Position
     =     n:number() { Position::Absolute(n) } /
       "+" n:number::<i32>() { Position::Relative(n + 1 ) } /

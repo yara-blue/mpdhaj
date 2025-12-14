@@ -389,29 +389,29 @@ pub struct PlaylistEntry {
     #[serde(rename = "file")]
     pub path: Utf8PathBuf,
     #[serde(rename = "Last-Modified")]
-    last_modified: jiff::Timestamp, // as 2025-06-15T22:06:58Z
-    added: jiff::Timestamp, // as 2025-06-15T22:06:58Z
+    pub last_modified: jiff::Timestamp, // as 2025-06-15T22:06:58Z
+    pub added: jiff::Timestamp, // as 2025-06-15T22:06:58Z
     #[serde(serialize_with = "response_format::audio_params")]
-    format: AudioParams,
-    artist: String,
-    album_artist: String,
+    pub format: AudioParams,
+    pub artist: String,
+    pub album_artist: String,
     /// the song title
-    title: String,
-    album: String,
+    pub title: String,
+    pub album: String,
     /// the decimal track number within the album.
-    track: u64,
+    pub track: u64,
     /// Release date usually 4 digit year
-    date: String,
+    pub date: String,
     /// the music genre
-    genre: Option<String>,
+    pub genre: Option<String>,
     /// the name of the label or publisher
-    label: String,
-    disc: Option<u64>,
+    pub label: String,
+    pub disc: Option<u64>,
     #[serde(serialize_with = "response_format::duration_millis_precise")]
     #[serde(rename = "duration")]
     pub duration: Duration,
-    pos: PosInPlaylist,
-    id: SongId,
+    pub pos: PosInPlaylist,
+    pub id: SongId,
 }
 
 #[derive(Serialize, Debug, Hash, PartialEq, Eq)]

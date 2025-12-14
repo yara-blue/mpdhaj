@@ -122,7 +122,7 @@ impl System {
         )?)
     }
 
-    fn get_song(&self, id: u32) -> Result<Song> {
+    pub fn get_song(&self, id: u32) -> Result<Song> {
         self.db
             .query_one("SELECT path, title, artist, album FROM songs WHERE id = ?1", [id], |row| {
                 Ok(Song {

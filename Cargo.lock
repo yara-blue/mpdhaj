@@ -115,6 +115,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 
 [[package]]
+name = "atomic_float"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "628d228f918ac3b82fe590352cc719d30664a0c13ca3a60266fe02c7132d480a"
+
+[[package]]
 name = "audiotags-dev-macro"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1503,8 +1509,9 @@ checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
 [[package]]
 name = "rodio"
 version = "0.21.1"
-source = "git+https://www.github.com/RustAudio/rodio#8a8ae9efd5eb2205e6e6296728cbb649bde81802"
+source = "git+https://www.github.com/RustAudio/rodio?rev=1e4dbbe6ebe78296ee84c6c4ddcf7506966b1e02#1e4dbbe6ebe78296ee84c6c4ddcf7506966b1e02"
 dependencies = [
+ "atomic_float",
  "cpal",
  "dasp_sample",
  "num-rational",

@@ -20,6 +20,8 @@ pub(crate) enum Commands {
     /// Look at the metadata of all the files in the folder and build
     /// and index.
     Scan(RunArgs),
+    /// List all the output devices
+    ListOutputs,
 }
 
 #[derive(clap::Parser)]

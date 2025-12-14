@@ -227,6 +227,14 @@ pub fn perform_command(
                 .wrap_err("Failed to get playlist")
                 .with_note(|| format!("playlist name: {playlist_name:?}"))?,
         )?,
+        PlaylistId(id) => {
+            // TODO: error handling
+            if let Some(id) = id {
+                system.get_song(id.0).unwrap().title.unwrap()
+            } else {
+                system.current_song().unwrap().unwrap().title
+            }
+        }
         Clear => {
             system.clear()?;
             system.playing = PlaybackState::Stop;

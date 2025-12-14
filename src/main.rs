@@ -16,6 +16,7 @@ mod playlist;
 mod proxy;
 mod scan;
 mod system;
+mod player;
 
 /// pub so doctests work
 pub mod util;
@@ -48,6 +49,11 @@ async fn main() -> Result<()> {
             let mut system = System::new(args.music_dir, args.playlist_dir)
                 .wrap_err("Could not start system")?;
             system.rescan().await?
+        }
+        Commands::ListOutputs => {
+            // player::print_outputs();
+            // player::beep_outputs();
+            todo!();
         }
     };
 
