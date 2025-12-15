@@ -84,7 +84,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -95,7 +95,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -773,7 +773,7 @@ dependencies = [
  "portable-atomic",
  "portable-atomic-util",
  "serde_core",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -1019,6 +1019,7 @@ name = "mpdhaj"
 version = "0.1.0"
 dependencies = [
  "ariadne",
+ "atomic_float",
  "camino",
  "clap",
  "color-eyre",
@@ -1116,7 +1117,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -1509,7 +1510,7 @@ checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
 [[package]]
 name = "rodio"
 version = "0.21.1"
-source = "git+https://www.github.com/RustAudio/rodio?rev=1e4dbbe6ebe78296ee84c6c4ddcf7506966b1e02#1e4dbbe6ebe78296ee84c6c4ddcf7506966b1e02"
+source = "git+https://www.github.com/RustAudio/rodio?branch=output-builder#739977bda83b608ed6a78a7ef4fc351dcaada03e"
 dependencies = [
  "atomic_float",
  "cpal",
@@ -2149,7 +2150,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]

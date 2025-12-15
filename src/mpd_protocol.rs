@@ -49,11 +49,11 @@ pub enum Command {
     // Control Playback:
     Next,
     Pause(Option<bool>), // 1 = pause, 0 = resume, None = toggle
-    Play(Option<PosInPlaylist>),
-    PlayId(Option<SongId>), // weird that this is optional
+    Play(Option<QueuePos>),
+    PlayId(Option<QueueId>), // weird that this is optional
     Previous,
-    Seek(PosInPlaylist, f32),
-    SeekId(SongId, f32),
+    Seek(QueuePos, f32),
+    SeekId(QueueId, f32),
     SeekCur(TimeOrOffset),
     Stop,
 
@@ -64,24 +64,24 @@ pub enum Command {
     /// Remove all items from the Queue
     Clear,
     Delete(Option<PosOrRange>),
-    DeleteId(SongId),
+    DeleteId(QueueId),
     Move(Option<PosOrRange>, Position),
-    MoveId(SongId, Position),
+    MoveId(QueueId, Position),
     Playlist, // deprecated
     PlaylistFind(Query, Option<Sort>, Option<Range>),
-    PlaylistId(Option<SongId>),
+    PlaylistId(Option<QueueId>),
     PlaylistInfo(Option<PosOrRange>),
     PlaylistSearch(Query, Option<Sort>, Option<Range>),
     PlChanges(u32, Option<Range>),
     PlChangesPosId(u32, Option<Range>),
     Prio(u8, Vec<Range>),
-    PrioId(u8, Vec<SongId>),
-    RangeId(SongId, Option<FloatRange>),
+    PrioId(u8, Vec<QueueId>),
+    RangeId(QueueId, Option<FloatRange>),
     Shuffle(Option<Range>),
-    Swap(PosInPlaylist, PosInPlaylist), // TODO: can these be relative?
-    SwapId(SongId, SongId),
-    AddTagId(SongId, Tag, String),
-    ClearTagId(SongId, Tag),
+    Swap(QueuePos, QueuePos), // TODO: can these be relative?
+    SwapId(QueueId, QueueId),
+    AddTagId(QueueId, Tag, String),
+    ClearTagId(QueueId, Tag),
 
     // Manipulate Playlists:
     ListPlaylist(PlaylistName, Option<Range>),
@@ -89,11 +89,11 @@ pub enum Command {
     SearchPlaylist(PlaylistName, Query, Option<Range>),
     ListPlayLists,
     Load(PlaylistName, Option<Range>, Option<Position>),
-    PlaylistAdd(PlaylistName, Utf8PathBuf, Option<PosInPlaylist>),
+    PlaylistAdd(PlaylistName, Utf8PathBuf, Option<QueuePos>),
     PlaylistClear(PlaylistName),
     PlaylistDelete(PlaylistName, PosOrRange), // pos can't be relative
     PlaylistLength(PlaylistName),
-    PlaylistMove(PlaylistName, Option<PosOrRange>, PosInPlaylist), // pos can't be relative
+    PlaylistMove(PlaylistName, Option<PosOrRange>, QueuePos), // pos can't be relative
     Rename(PlaylistName, PlaylistName),
     Rm(PlaylistName),
     Save(PlaylistName, Option<PlaylistSaveMode>),
@@ -355,21 +355,46 @@ impl Volume {
     }
 }
 
+/// Unique Id for a song in the database. Set on scan.
+///
+/// Note:
+/// Not the same as mpd's SongId
 #[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SongId(pub u32);
-#[derive(Debug, Serialize)]
-pub struct SongNumber(pub u32);
 
+/// Stable id for the queue. Adding the same song twice to the queue will assign
+/// different id's to them
+///
+/// Note:
+/// This is the same as Mpd's SongId
 #[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
-pub struct PosInPlaylist(u32);
+pub struct QueueId(pub u32);
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
+/// Position in the queue
+///
+/// Note:
+/// This is the same as Mpd's SongNumber
+#[derive(Debug, Default, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct QueuePos(pub u32);
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum PlaybackState {
     Play,
     Pause,
     #[default]
     Stop,
+}
+
+impl PlaybackState {
+    pub fn toggle(self) -> Self {
+        use PlaybackState::*;
+        match self {
+            Play => Pause,
+            Pause => Play,
+            Stop => Play,
+        }
+    }
 }
 
 // custom serialize as: samplerate:bits:channels
@@ -380,12 +405,22 @@ pub struct AudioParams {
     pub channels: ChannelCount,
 }
 
+impl Default for AudioParams {
+    fn default() -> Self {
+        Self {
+            samplerate: nz!(44100),
+            bits: 16,
+            channels: nz!(2),
+        }
+    }
+}
+
 #[derive(Serialize, Debug)]
-pub struct PlaylistInfo(pub Vec<PlaylistEntry>);
+pub struct QueueInfo(pub Vec<QueueEntry>);
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "PascalCase")]
-pub struct PlaylistEntry {
+pub struct QueueEntry {
     #[serde(rename = "file")]
     pub path: Utf8PathBuf,
     #[serde(rename = "Last-Modified")]
@@ -410,8 +445,8 @@ pub struct PlaylistEntry {
     #[serde(serialize_with = "response_format::duration_millis_precise")]
     #[serde(rename = "duration")]
     pub duration: Duration,
-    pub pos: PosInPlaylist,
-    pub id: SongId,
+    pub pos: QueuePos,
+    pub id: QueueId,
 }
 
 #[derive(Serialize, Debug, Hash, PartialEq, Eq)]
@@ -437,9 +472,9 @@ pub struct FindResult {
     pub duration: Duration,
 }
 
-impl PlaylistEntry {
+impl QueueEntry {
     /// almost all fields are todo!
-    pub fn mostly_fake(pos: u32, id: SongId, song: crate::system::Song) -> Self {
+    pub fn mostly_fake(pos: u32, id: QueueId, song: crate::system::Song) -> Self {
         Self {
             path: song.path,
             last_modified: Timestamp::constant(0, 0),
@@ -459,7 +494,7 @@ impl PlaylistEntry {
             label: "todo".to_string(),
             disc: None,
             duration: song.playtime,
-            pos: PosInPlaylist(pos),
+            pos: QueuePos(pos),
             id,
         }
     }
@@ -480,25 +515,31 @@ pub struct Status {
     /// We do not support this
     pub partition: String,
     pub volume: Volume,
-    pub playlist: PlaylistId,
+    /// 31-bit unsigned integer, the playlist version number
+    pub playlist: u32, // TODO understand and implement?
+    /// the length of queue
     pub playlistlength: u64,
     pub state: PlaybackState,
     pub lastloadedplaylist: Option<PlaylistName>,
     #[serde(serialize_with = "response_format::duration_seconds")]
     pub xfade: Duration,
-    pub song: SongNumber,
-    pub songid: SongId,
-    #[serde(serialize_with = "response_format::duration_millis_precise")]
-    pub elapsed: Duration,
-    pub bitrate: u64,
+    /// the current song stopped on or playing
+    pub song: Option<QueuePos>,
+    /// the current song stopped on or playing
+    pub songid: Option<QueueId>,
+    #[serde(serialize_with = "response_format::option_duration_millis_precise")]
+    pub elapsed: Option<Duration>,
+    pub bitrate: Option<u64>,
     /// Duration of the current song in seconds
-    #[serde(serialize_with = "response_format::duration_millis_precise")]
-    pub duration: Duration,
-    #[serde(serialize_with = "response_format::audio_params")]
-    pub audio: AudioParams,
+    #[serde(serialize_with = "response_format::option_duration_millis_precise")]
+    pub duration: Option<Duration>,
+    #[serde(serialize_with = "response_format::option_audio_params")]
+    pub audio: Option<AudioParams>,
     pub error: Option<String>,
-    pub nextsong: SongNumber,
-    pub nextsongid: SongId,
+    ///the next song to be played
+    pub nextsong: Option<QueuePos>,
+    ///the next song to be played
+    pub nextsongid: Option<QueueId>,
 }
 
 #[derive(Serialize, Debug)]

@@ -29,8 +29,41 @@ where
     serializer.serialize_f64(duration.as_secs_f64())
 }
 
+/// See docs on duration_millis
+pub fn option_duration_millis_precise<S>(
+    duration: &Option<Duration>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    if let Some(duration) = duration {
+        duration_millis_precise(duration, serializer)
+    } else {
+        serializer.serialize_none()
+    }
+}
+
+pub fn option_audio_params<S>(
+    params: &Option<AudioParams>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    if let Some(params) = params {
+        audio_params(params, serializer)
+    } else {
+        serializer.serialize_none()
+    }
+}
+
 pub fn audio_params<S>(
-    AudioParams { samplerate, bits, channels }: &AudioParams,
+    AudioParams {
+        samplerate,
+        bits,
+        channels,
+    }: &AudioParams,
     serializer: S,
 ) -> Result<S::Ok, S::Error>
 where

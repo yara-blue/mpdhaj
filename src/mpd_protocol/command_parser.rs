@@ -8,7 +8,7 @@ use std::str::FromStr;
 
 use crate::mpd_protocol::{
     Command::{self, *},
-    List, Position, SongId, SubSystem, Tag,
+    List, Position, QueueId, SubSystem, Tag,
     query::Query,
 };
 
@@ -51,12 +51,12 @@ grammar command() for str {
 
     // manipulate queue
     rule playlistid() -> Command
-    = "playlistid" id:(_ id:song_id() {id})? { Command::PlaylistId(id) }
+    = "playlistid" id:(_ "\""? id:song_id() "\""? {id})? { Command::PlaylistId(id) }
     rule add() -> Command
     = "add" _ uri:uri() pos:(_ pos:position() {pos})? { Command::Add(uri, pos) }
 
     rule lsinfo() -> Command
-        = "lsinfo" uri:(_ uri:uri() {uri})? {
+        = ("lsinfo" / "listall") uri:(_ uri:uri() {uri})? {
         Command::ListAll(uri)
     }
     rule list_tag() -> Command
@@ -95,8 +95,8 @@ grammar command() for str {
     rule subsystem() -> SubSystem = #{ try_from_str }
     // = s:$(['A'..='Z'|'a'..='z'](['A'..='Z'|'a'..='z'|'0'..='9']+)) { s.to_owned() }
 
-    rule song_id() -> SongId
-    = id:number() { SongId(id) }
+    rule song_id() -> QueueId
+    = id:number() { QueueId(id) }
     rule position() -> Position
     =     n:number() { Position::Absolute(n) } /
       "+" n:number::<i32>() { Position::Relative(n + 1 ) } /

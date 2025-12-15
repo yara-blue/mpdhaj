@@ -3,8 +3,8 @@ use std::time::Duration;
 use rodio::nz;
 
 use crate::mpd_protocol::{
-    AudioParams, ListItem, PlaybackState, PlaylistEntry, PlaylistId, PlaylistInfo, PosInPlaylist,
-    SongId, SongNumber, Status, Volume, response_format,
+    AudioParams, ListItem, PlaybackState, QueueEntry, QueueId, QueueInfo, QueuePos, Status, Volume,
+    response_format,
 };
 
 #[test]
@@ -17,24 +17,24 @@ fn serialize_status() {
             consume: true,
             partition: "default".to_string(),
             volume: Volume::new(50),
-            playlist: PlaylistId(22),
+            playlist: 0,
             playlistlength: 0,
             state: PlaybackState::Stop,
             lastloadedplaylist: None,
             xfade: Duration::from_secs(5),
-            song: SongNumber(5),
-            songid: SongId(5),
-            elapsed: Duration::from_secs(2),
-            bitrate: 320_000,
-            duration: Duration::from_secs(320),
-            audio: AudioParams {
+            song: Some(QueuePos(5)),
+            songid: Some(QueueId(5)),
+            elapsed: Some(Duration::from_secs(2)),
+            bitrate: Some(320_000),
+            duration: Some(Duration::from_secs(320)),
+            audio: Some(AudioParams {
                 samplerate: nz!(44100),
                 bits: 24,
                 channels: nz!(2)
-            },
+            }),
             error: Some("Failed to open \"usb dac attached to pi\" (alsa); Failed to open ALSA device \"hw:CARD=UD110v2,DEV=1\": No such device".to_string()),
-            nextsong: SongNumber(1),
-            nextsongid: SongId(1),
+            nextsong: Some(QueuePos(1)),
+            nextsongid: Some(QueueId(1)),
         })
         .unwrap(),
         "repeat: 0
@@ -63,8 +63,8 @@ nextsongid: 1
 #[test]
 fn serialize_playlistinfo() {
     pretty_assertions::assert_eq!(
-        response_format::to_string(&PlaylistInfo(vec![
-            PlaylistEntry {
+        response_format::to_string(&QueueInfo(vec![
+            QueueEntry {
                 path: "Lukas Graham/7 Years.mp3".into(),
                 last_modified: "2025-06-15T22:08:17Z".parse().unwrap(),
                 added: "2025-11-07T15:33:17Z".parse().unwrap(),
@@ -83,10 +83,10 @@ fn serialize_playlistinfo() {
                 title: "7 Years".to_string(),
                 artist: "Lukas Graham".to_string(),
                 duration: Duration::from_secs_f64(237.3),
-                pos: PosInPlaylist(0),
-                id: SongId(294),
+                pos: QueuePos(0),
+                id: QueueId(294),
             },
-            PlaylistEntry {
+            QueueEntry {
                 path: "Taylor Swift/1989/01 Welcome To New York.mp3".into(),
                 last_modified: "2025-06-15T22:06:26Z".parse().unwrap(),
                 added: "2025-11-07T15:33:05Z".parse().unwrap(),
@@ -105,10 +105,10 @@ fn serialize_playlistinfo() {
                 disc: Some(1),
                 label: "Taylor Swift".to_string(),
                 duration: Duration::from_secs_f64(212.6),
-                pos: PosInPlaylist(1),
-                id: SongId(295),
+                pos: QueuePos(1),
+                id: QueueId(295),
             },
-            PlaylistEntry {
+            QueueEntry {
                 path: "Chappell Roan/EPs/Chappell Roan - School Nights (2017) [24B-44.1kHz]/03. Meantime.flac".into(),
                 last_modified: "2025-06-15T22:14:00Z".parse().unwrap(),
                 added: "2025-11-07T15:36:03Z".parse().unwrap(),
@@ -127,8 +127,8 @@ fn serialize_playlistinfo() {
                 track: 3,
                 disc: None,
                 duration: Duration::from_secs_f64(183.448),
-                pos: PosInPlaylist(2),
-                id: SongId(296),
+                pos: QueuePos(2),
+                id: QueueId(296),
 
             }
         ]))

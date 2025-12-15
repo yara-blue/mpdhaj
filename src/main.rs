@@ -1,7 +1,8 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use clap::Parser;
 use color_eyre::{Result, eyre::Context};
+use tokio::sync::Mutex;
 use tracing_subscriber::fmt::format::FmtSpan;
 
 use crate::{
@@ -12,11 +13,11 @@ use crate::{
 mod cli;
 mod mpd_client;
 mod mpd_protocol;
+mod player;
 mod playlist;
 mod proxy;
 mod scan;
 mod system;
-mod player;
 
 /// pub so doctests work
 pub mod util;
@@ -66,7 +67,13 @@ pub(crate) fn setup_tracing() {
     use tracing_subscriber::prelude::*;
 
     let filter = filter::EnvFilter::builder().from_env().unwrap();
-    let fmt = fmt::layer().pretty().with_line_number(true).with_span_events(FmtSpan::CLOSE);
+    let fmt = fmt::layer()
+        .pretty()
+        .with_line_number(true)
+        .with_span_events(FmtSpan::CLOSE);
 
-    let _ignore_err = tracing_subscriber::registry().with(fmt).with(filter).try_init();
+    let _ignore_err = tracing_subscriber::registry()
+        .with(fmt)
+        .with(filter)
+        .try_init();
 }

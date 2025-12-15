@@ -1,4 +1,24 @@
+fn list_outputs() {
+    let outputs = rodio::speakers::available_outputs().unwrap();
+    for config in outputs.into_iter().map(|output| {
+        Ok::<_, rodio::speakers::builder::Error>(
+            rodio::speakers::SpeakersBuilder::new()
+                .device(output)?
+                .try_channels(rodio::nz!(2))?
+                // those rates that can be trivially resampled into 44100
+                .prefer_sample_rates([rodio::nz!(44100), rodio::nz!(88200)])
+                .get_config(),
+        )
+    }) {
+        let config = config.unwrap(); // handle errors later
 
+        // if config. // TODO move is_default device into output config
+        //     println!("{name} [default output]")
+        // } else {
+        //     println!("{name}")
+        // }
+    }
+}
 
 // use std::{ops::Range, thread, time::Duration};
 

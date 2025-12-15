@@ -38,7 +38,10 @@ const SCANNERS: &[&dyn FormatScanner] =
 pub async fn scan_path(path: &Utf8Path) -> Option<Metadata> {
     let path = path.to_path_buf();
     spawn_blocking(move || {
-        SCANNERS.iter().filter_map(move |scanner| scanner.scan(path.clone()).ok().flatten()).next()
+        SCANNERS
+            .iter()
+            .filter_map(move |scanner| scanner.scan(path.clone()).ok().flatten())
+            .next()
     })
     .await
     .expect("Scanning should never panic")
@@ -59,9 +62,11 @@ async fn scan_song(
     generation: u32,
 ) -> Result<ScanResult> {
     let Ok((id, cached_mtime)) = trace_span!("path lookup").in_scope(|| {
-        db.query_one("SELECT rowid, mtime FROM songs WHERE path = ?1", [relpath.as_str()], |row| {
-            Ok((row.get::<_, u32>(0)?, row.get::<_, String>(1)?))
-        })
+        db.query_one(
+            "SELECT rowid, mtime FROM songs WHERE path = ?1",
+            [relpath.as_str()],
+            |row| Ok((row.get::<_, u32>(0)?, row.get::<_, String>(1)?)),
+        )
     }) else {
         let Some(song_metadata) = scan_path(abspath).await else {
             return Ok(ScanResult::NotASong);
@@ -107,7 +112,10 @@ async fn scan_song(
         Ok(ScanResult::Updated)
     } else {
         trace_span!("bump generation").in_scope(|| {
-            db.execute("UPDATE songs SET generation = ?2 WHERE rowid = ?1", (id, generation))
+            db.execute(
+                "UPDATE songs SET generation = ?2 WHERE rowid = ?1",
+                (id, generation),
+            )
         })?;
         Ok(ScanResult::Cached)
     }
@@ -117,7 +125,9 @@ impl System {
     pub async fn rescan(&mut self) -> Result<()> {
         let generation = self
             .db
-            .query_one("SELECT generation FROM state", [], |row| Ok(row.get::<_, u32>(0)? + 1))?;
+            .query_one("SELECT generation FROM state", [], |row| {
+                Ok(row.get::<_, u32>(0)? + 1)
+            })?;
         let music_dir = &self.music_dir;
         let (mut cached, mut added, mut updated) = (0, 0, 0);
         let t = Transaction::new(&mut self.db, rusqlite::TransactionBehavior::Exclusive)?;
@@ -138,12 +148,16 @@ impl System {
             }
         }
         info_span!("commit scan transaction").in_scope(|| t.commit())?;
-        let old_size =
-            self.db.query_one("SELECT COUNT(*) FROM songs", [], |row| row.get::<_, usize>(0))?;
-        self.db.execute("UPDATE state SET generation = ?1", [generation])?;
-        self.db.execute("DELETE FROM songs WHERE generation < ?1", [generation])?;
-        let new_size =
-            self.db.query_one("SELECT COUNT(*) FROM songs", [], |row| row.get::<_, usize>(0))?;
+        let old_size = self.db.query_one("SELECT COUNT(*) FROM songs", [], |row| {
+            row.get::<_, usize>(0)
+        })?;
+        self.db
+            .execute("UPDATE state SET generation = ?1", [generation])?;
+        self.db
+            .execute("DELETE FROM songs WHERE generation < ?1", [generation])?;
+        let new_size = self.db.query_one("SELECT COUNT(*) FROM songs", [], |row| {
+            row.get::<_, usize>(0)
+        })?;
         // TODO: clean up queue removing any entries without a valid songid and fix up "current" if
         // removed songs were before it
         info!(

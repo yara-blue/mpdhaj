@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use color_eyre::Section;
 use color_eyre::eyre::{OptionExt, eyre};
@@ -9,10 +9,11 @@ use itertools::Itertools;
 use strum::{IntoEnumIterator, VariantNames};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
+use tokio::sync::Mutex;
 use tokio::task;
 use tracing::{debug, info, instrument, warn};
 
-use crate::mpd_protocol::{self, PlaybackState, SubSystem, Tag, response_format};
+use crate::mpd_protocol::{self, PlaybackState, QueueEntry, SubSystem, Tag, response_format};
 use crate::{mpd_protocol::Command, system::System};
 
 // stuff that's specific to a single client connection
@@ -20,7 +21,7 @@ pub struct ClientState {
     pub tag_types: HashSet<Tag>,
 }
 
-pub(crate) async fn handle_clients(system: Arc<std::sync::Mutex<System>>, port: u16) -> Result<()> {
+pub(crate) async fn handle_clients(system: Arc<Mutex<System>>, port: u16) -> Result<()> {
     let listener = TcpListener::bind(format!("0.0.0.0:{port}")).await?;
 
     loop {
@@ -46,7 +47,7 @@ pub(crate) async fn handle_clients(system: Arc<std::sync::Mutex<System>>, port: 
 async fn handle_client(
     mut reader: tokio::io::Lines<impl AsyncBufRead + Unpin>,
     mut writer: impl AsyncWrite + Send + 'static + Unpin + Send,
-    system: Arc<std::sync::Mutex<System>>,
+    system: Arc<Mutex<System>>,
 ) -> Result<()> {
     writer
         .write_all(format!("OK MPD {}\n", mpd_protocol::VERSION).as_bytes())
@@ -80,7 +81,7 @@ async fn handle_client(
         } else {
             command
         };
-        let mut response = perform_command(command, &system, &mut state)?;
+        let mut response = perform_command(command, &system, &mut state).await?;
 
         response.push_str("OK\n");
         debug!("reply: {response}");
@@ -120,7 +121,7 @@ async fn handle_command_list(
         if matches!(command, Command::Idle(_) | Command::NoIdle) {
             return Err(eyre!("Idle and NoIde are not allowed in command lists"));
         }
-        let response = perform_command(command, system, client_state)?;
+        let response = perform_command(command, system, client_state).await?;
         command_executed += 1;
 
         debug!("reply: {response}");
@@ -141,7 +142,7 @@ async fn handle_idle(
     use futures_concurrency::prelude::*;
     debug!("Entering idle mode");
 
-    let mut rx = system.lock().unwrap().idle(sub_systems);
+    let mut rx = system.lock().await.idle(sub_systems);
     #[derive(Debug)]
     enum Potato {
         MpdEvent(Option<SubSystem>),
@@ -203,18 +204,18 @@ async fn acknowledge_cmd_list_entry(
 }
 
 #[instrument(skip(system, client_state), ret)]
-pub fn perform_command(
+pub async fn perform_command(
     request: Command,
     system: &Mutex<System>,
     client_state: &mut ClientState,
 ) -> color_eyre::Result<String> {
     use Command::*;
-    let mut system = system.lock().expect("No thread should ever panic");
+    let mut system = system.lock().await;
     Ok(match &request {
         BinaryLimit(_) => String::new(),
         Commands => supported_command_list(),
         Status => {
-            response_format::to_string(&system.status()).wrap_err("Failed to get system status")?
+            response_format::to_string(&system.status()?).wrap_err("Failed to get system status")?
         }
         PlaylistInfo(_pos_or_range) => {
             response_format::to_string(&system.queue().wrap_err("Failed to get current queue")?)?
@@ -230,15 +231,19 @@ pub fn perform_command(
         PlaylistId(id) => {
             // TODO: error handling
             if let Some(id) = id {
-                system.get_song(id.0).unwrap().title.unwrap()
+                response_format::to_string(&QueueEntry::from(system.get_song(id.0)?))?
             } else {
-                system.current_song().unwrap().unwrap().title
+                if let Some(current) = system.current_song()? {
+                    response_format::to_string(&current)?
+                } else {
+                    String::new()
+                }
             }
         }
         Clear => {
             system.clear()?;
             system.playing = PlaybackState::Stop;
-            response_format::to_string(&system.status())?
+            response_format::to_string(&system.status()?)?
         }
         ListAll(dir) => response_format::to_string(
             &system
@@ -268,18 +273,40 @@ pub fn perform_command(
                 .with_note(|| format!("song path: {song:?}"))?,
         )?,
         Volume(_volume_change) => todo!(),
-        Play(_pos) => {
-            // TODO: actually play
+        Play(pos) => {
             system.playing = PlaybackState::Play;
-            response_format::to_string(&system.status())?
+            let path = if let Some(pos) = pos {
+                system.song_by_pos(*pos)
+            } else {
+                system.current_song()
+            }?
+            .ok_or_eyre("Couldn't find song")?
+            .path;
+
+            system
+                .player
+                .add(&path)
+                .await
+                .wrap_err("Could not play song")?;
+            response_format::to_string(&system.status()?)?
         }
-        Pause(_state) => {
-            system.playing = PlaybackState::Pause;
-            response_format::to_string(&system.status())?
+        Pause(state) => {
+            system.playing = match state {
+                Some(true) => PlaybackState::Pause,
+                Some(false) => PlaybackState::Play,
+                None => system.playing.toggle(),
+            };
+            if system.playing == PlaybackState::Play {
+                system.player.unpause();
+            } else {
+                system.player.pause();
+            }
+            response_format::to_string(&system.status()?)?
         }
         Stop => {
             system.playing = PlaybackState::Stop;
-            response_format::to_string(&system.status())?
+            system.player.pause(); // TODO: actually stop?
+            response_format::to_string(&system.status()?)?
         }
         Next => todo!(),
         Previous => todo!(),
