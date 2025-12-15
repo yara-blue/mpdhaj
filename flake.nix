@@ -17,9 +17,8 @@
             pkg-config
           ];
 
-          buildInputs = with pkgs; [] ++ lib.optionals pkgs.stdenv.isLinux [
+          buildInputs = with pkgs; [sqlite] ++ lib.optionals pkgs.stdenv.isLinux [
             alsa-lib
-            sqlite
           ];
 
           packages = with pkgs; [

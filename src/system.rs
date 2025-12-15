@@ -16,8 +16,8 @@ use std::time::Duration;
 
 use crate::mpd_protocol::query::Query;
 use crate::mpd_protocol::{
-    self, AudioParams, FindResult, ListItem, PlayList, PlaybackState, PlaylistId, Position,
-    QueueEntry, QueueId, QueueInfo, QueuePos, QueuePos, SongId, SubSystem, Tag, Volume,
+    self, AudioParams, FindResult, ListItem, PlayList, PlaybackState, Position, QueueEntry,
+    QueueId, QueueInfo, QueuePos, SongId, SubSystem, Tag, Volume,
 };
 use crate::player::Player;
 use crate::playlist::{self, PlaylistName};
@@ -264,13 +264,13 @@ impl System {
             let mut stmt = self
                 .db
                 .prepare("INSERT INTO queue (song, position) VALUES (?1, ?2)")?;
-            Ok(stmt.insert([song, pos]).map(|n| QueueId(n as u32))?)
+            Ok(stmt.insert([song.0, pos]).map(|n| QueueId(n as u32))?)
         } else {
             let mut stmt = self.db.prepare(
                 "INSERT INTO queue (song, position)
                     VALUES (?1, COALESCE((SELECT MAX(position) FROM queue), 0) + 1)",
             )?;
-            Ok(stmt.insert([song]).map(|n| QueueId(n as u32))?)
+            Ok(stmt.insert([song.0]).map(|n| QueueId(n as u32))?)
         }
     }
 
@@ -286,11 +286,12 @@ impl System {
     }
 
     pub fn list_tag(&self, tag_to_list: &Tag) -> Result<Vec<String>> {
-        let mut stmt = self.db.prepare("SELECT DISTINCT ?1 FROM songs")?;
+        let mut stmt = self.db.prepare(&format!(
+            "SELECT DISTINCT {} FROM songs",
+            tag_to_list.to_string().to_lowercase()
+        ))?;
         Ok(stmt
-            .query_and_then([tag_to_list.to_string().to_lowercase()], |row| {
-                row.get::<_, String>(0)
-            })?
+            .query_and_then([], |row| dbg!(row.get::<_, String>(0)))?
             .collect::<Result<Vec<_>, _>>()?)
     }
 
@@ -318,10 +319,22 @@ impl System {
             [pos.0],
             |row| Ok((row.get(0)?, row.get(1)?)),
         ) else {
-            return Err(eyre!("Couldn't find song {} in the queue", pos.0));
+            return Err(eyre!("Couldn't find song #{} in the queue", pos.0));
         };
-        let song = self.get_song(song)?;
-        Ok(Some(QueueEntry::mostly_fake(0, QueueId(id), song)))
+        let song = self.get_song(SongId(song))?;
+        Ok(Some(QueueEntry::mostly_fake(pos.0, QueueId(id), song)))
+    }
+
+    pub fn song_by_id(&self, id: QueueId) -> Result<Option<QueueEntry>> {
+        let Ok((song, pos)) = self.db.query_one(
+            "SELECT song, position FROM queue WHERE id = ?1",
+            [id.0],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ) else {
+            return Err(eyre!("Couldn't find song id {} in the queue", id.0));
+        };
+        let song = self.get_song(SongId(song))?;
+        Ok(Some(QueueEntry::mostly_fake(pos, id, song)))
     }
 
     pub fn clear(&self) -> Result<()> {
@@ -432,13 +445,13 @@ pub struct Song {
     pub musicbrainz_work_id: Option<String>,
 }
 
-impl From<Song> for QueueEntry {
-    fn from(s: Song) -> Self {
+impl QueueEntry {
+    fn from_song(s: Song, pos: QueuePos, id: QueueId) -> Self {
         QueueEntry {
             path: s.path,
             last_modified: s.mtime,
             added: s.date_added,
-            format: AudioParams::default(),
+            format: AudioParams::default(), // TODO:
             artist: s.artist.unwrap_or_default(),
             album_artist: s.album_artist.unwrap_or_default(),
             title: s.title.unwrap_or_default(),
@@ -449,8 +462,8 @@ impl From<Song> for QueueEntry {
             label: s.label.unwrap_or_default(),
             disc: s.disc.map(|n| n as u64),
             duration: s.playtime,
-            pos: QueuePos(42), // TODO: not this
-            id: QueueId(69),
+            pos,
+            id,
         }
     }
 }

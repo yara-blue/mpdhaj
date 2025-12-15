@@ -40,6 +40,7 @@ pub struct Player {
     params: Arc<PlayerParams>,
     abort_handle: Option<AbortHandle>,
 }
+unsafe impl Send for Player {} // TODO: @yara uhhhhhhh... can we do this?
 
 /// Aborts the Source this is connected to when it is dropped
 #[derive(Clone)]

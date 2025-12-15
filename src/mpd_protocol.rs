@@ -367,7 +367,7 @@ pub struct SongId(pub u32);
 ///
 /// Note:
 /// This is the same as Mpd's SongId
-#[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq, Copy, Clone)]
 pub struct QueueId(pub u32);
 
 /// Position in the queue
@@ -649,6 +649,7 @@ enum SortType {
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq, Hash)]
 pub struct ChannelName(pub String);
 
+#[allow(unused)]
 #[derive(Default, Debug, PartialEq)]
 pub enum StickerType {
     Song,

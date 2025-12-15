@@ -1,9 +1,8 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use color_eyre::Section;
-use color_eyre::eyre::{OptionExt, eyre};
-use color_eyre::{Result, eyre::Context};
+use color_eyre::eyre::{Context, OptionExt, eyre};
+use color_eyre::{Result, Section};
 use futures::FutureExt;
 use itertools::Itertools;
 use strum::{IntoEnumIterator, VariantNames};
@@ -13,7 +12,7 @@ use tokio::sync::Mutex;
 use tokio::task;
 use tracing::{debug, info, instrument, warn};
 
-use crate::mpd_protocol::{self, PlaybackState, QueueEntry, SubSystem, Tag, response_format};
+use crate::mpd_protocol::{self, PlaybackState, SubSystem, Tag, response_format};
 use crate::{mpd_protocol::Command, system::System};
 
 // stuff that's specific to a single client connection
@@ -231,7 +230,7 @@ pub async fn perform_command(
         PlaylistId(id) => {
             // TODO: error handling
             if let Some(id) = id {
-                response_format::to_string(&QueueEntry::from(system.get_song(id.0)?))?
+                response_format::to_string(&system.song_by_id(*id)?)?
             } else {
                 if let Some(current) = system.current_song()? {
                     response_format::to_string(&current)?
@@ -252,19 +251,23 @@ pub async fn perform_command(
         )?,
         List(mpd_protocol::List {
             tag_to_list,
-            query: _,
+            query,
             group_by,
-            window: _,
+            window,
         }) => {
-            if !group_by.is_empty() {
-                return Err(eyre!("group_by argument in List command not yet supported"));
+            if !group_by.is_empty() || query.is_some() || window.is_some() {
+                return Err(eyre!(
+                    "group_by/query/window in List command not yet supported"
+                ));
             }
 
-            system
-                .list_tag(tag_to_list)
-                .wrap_err("Failed to list tags")
-                .with_note(|| format!("Tag type: {tag_to_list}"))?
-                .join("\n")
+            response_format::to_string(
+                &system
+                    .list_tag(tag_to_list)
+                    .wrap_err("Failed to list tags")
+                    .with_note(|| format!("Tag type: {tag_to_list}"))?
+                    .join("\n"),
+            )?
         }
         LsInfo(song) => response_format::to_string(
             &system

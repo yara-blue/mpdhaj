@@ -9,11 +9,16 @@ use tokio::task;
 use tokio::task::JoinHandle;
 use tracing::info;
 
+use crate::util::LogError;
+
 pub async fn handle_clients(port: u16, addr: &str) -> Result<()> {
     let addr: Arc<str> = addr.into();
     let listener = TcpListener::bind(format!("0.0.0.0:{port}")).await?;
     loop {
-        let (stream, _) = listener.accept().await.wrap_err("Could not accept connection")?;
+        let (stream, _) = listener
+            .accept()
+            .await
+            .wrap_err("Could not accept connection")?;
         let (reader, writer) = tokio::io::split(stream);
         let reader = BufReader::new(reader).lines();
         let addr = addr.clone();
@@ -77,7 +82,7 @@ async fn handle(
         }
     });
 
-    t1.await.unwrap().unwrap();
-    t2.await.unwrap().unwrap();
+    t1.await.unwrap().log_error().ok();
+    t2.await.unwrap().log_error().ok();
     Ok(())
 }
