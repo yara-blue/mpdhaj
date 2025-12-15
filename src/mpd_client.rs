@@ -212,7 +212,7 @@ pub async fn perform_command(
     let mut system = system.lock().await;
     Ok(match &request {
         BinaryLimit(_) => String::new(),
-        Commands => supported_command_list(),
+        Commands => response_format::to_string(&supported_command_list())?,
         Status => {
             response_format::to_string(&system.status()?).wrap_err("Failed to get system status")?
         }
@@ -228,15 +228,12 @@ pub async fn perform_command(
                 .with_note(|| format!("playlist name: {playlist_name:?}"))?,
         )?,
         PlaylistId(id) => {
-            // TODO: error handling
             if let Some(id) = id {
                 response_format::to_string(&system.song_by_id(*id)?)?
+            } else if let Some(current) = system.current_song()? {
+                response_format::to_string(&current)?
             } else {
-                if let Some(current) = system.current_song()? {
-                    response_format::to_string(&current)?
-                } else {
-                    String::new()
-                }
+                String::new()
             }
         }
         Clear => {
@@ -261,13 +258,11 @@ pub async fn perform_command(
                 ));
             }
 
-            response_format::to_string(
-                &system
-                    .list_tag(tag_to_list)
-                    .wrap_err("Failed to list tags")
-                    .with_note(|| format!("Tag type: {tag_to_list}"))?
-                    .join("\n"),
-            )?
+            let results = system
+                .list_tag(tag_to_list)
+                .wrap_err("Failed to list tags")
+                .with_note(|| format!("Tag type: {tag_to_list}"))?;
+            response_format::to_string(&results)?
         }
         LsInfo(song) => response_format::to_string(
             &system
@@ -369,12 +364,10 @@ pub async fn perform_command(
     })
 }
 
-fn supported_command_list() -> String {
-    let mut list = Command::VARIANTS
+fn supported_command_list() -> Vec<String> {
+    Command::VARIANTS
         .iter()
         .map(|name| name.replace("-", ""))
         .map(|command| format!("command: {command}"))
-        .join("\n");
-    list.push('\n');
-    list
+        .collect()
 }

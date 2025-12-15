@@ -40,5 +40,8 @@ peg = "0.8.5"
 ariadne = "0.6.0"
 atomic_float = "1.1.0"
 
+[lints.rust]
+unused = "allow" # TODO: remove
+
 # [profile.release]
 # debug = true

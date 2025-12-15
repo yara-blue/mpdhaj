@@ -31,7 +31,6 @@ pub struct System {
     pub playlists: HashMap<PlaylistName, Vec<Utf8PathBuf>>,
     pub idlers: HashMap<SubSystem, Vec<mpsc::Sender<SubSystem>>>,
     pub music_dir: Utf8PathBuf,
-    #[allow(unused)]
     pub started_at: Timestamp, // for uptime
 }
 
@@ -90,17 +89,17 @@ impl System {
             if let Ok(id) = self.db.query_one(
                 "SELECT song FROM QUEUE WHERE position = ?1",
                 [pos + 1],
-                |row| Ok(row.get::<_, u32>(0)?),
+                |row| row.get::<_, u32>(0),
             ) {
                 next_pos = Some(QueuePos(pos + 1));
                 next_id = Some(QueueId(id));
             }
         }
         Ok(mpd_protocol::Status {
-            repeat: repeat,
-            random: random,
-            single: single,
-            consume: consume,
+            repeat,
+            random,
+            single,
+            consume,
             partition: "default".to_string(),
             volume: Volume::new(50), // TODO: persist
             playlist: 0,             // TODO
@@ -242,13 +241,13 @@ impl System {
 
     pub fn add_to_queue(&self, path: &Utf8Path, position: &Option<Position>) -> Result<QueueId> {
         let song = self.song_id_from_path(path)?;
+        let current = self
+            .db
+            .query_one("SELECT current FROM state", [], |row| row.get::<_, u32>(0))?;
         if let Some(pos) = position {
             let pos: u32 = match pos {
                 Position::Absolute(pos) => *pos,
                 Position::Relative(offset) => {
-                    let current = self
-                        .db
-                        .query_one("SELECT current FROM state", [], |row| row.get::<_, u32>(0))?;
                     if -offset > current as i32 {
                         return Err(eyre!(
                             "Position {offset} is invalid, current position is {current}"
@@ -266,6 +265,9 @@ impl System {
                 .prepare("INSERT INTO queue (song, position) VALUES (?1, ?2)")?;
             Ok(stmt.insert([song.0, pos]).map(|n| QueueId(n as u32))?)
         } else {
+            if current == 0 {
+                self.db.execute("UPDATE state SET current = 1", [])?;
+            }
             let mut stmt = self.db.prepare(
                 "INSERT INTO queue (song, position)
                     VALUES (?1, COALESCE((SELECT MAX(position) FROM queue), 0) + 1)",
@@ -286,12 +288,13 @@ impl System {
     }
 
     pub fn list_tag(&self, tag_to_list: &Tag) -> Result<Vec<String>> {
-        let mut stmt = self.db.prepare(&format!(
-            "SELECT DISTINCT {} FROM songs",
-            tag_to_list.to_string().to_lowercase()
-        ))?;
+        let s = tag_to_list.to_string();
+        let mut stmt = self
+            .db
+            .prepare(&format!("SELECT DISTINCT {} FROM songs", s.to_lowercase()))?;
         Ok(stmt
             .query_and_then([], |row| dbg!(row.get::<_, String>(0)))?
+            .map(|result| result.map(|output| format!("{s}: {output}")))
             .collect::<Result<Vec<_>, _>>()?)
     }
 
@@ -468,29 +471,4 @@ impl QueueEntry {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::setup_tracing;
-
-    use super::*;
-
-    #[test]
-    fn wtfwhynooo() {
-        color_eyre::install().unwrap();
-        setup_tracing();
-
-        // TODO: use in-memory database for tests, pass connection into system::new instead of creating in
-        // there. also disable scanning?
-        let system = System::new("~/Music".into(), None).unwrap();
-        system
-            .add_to_queue(
-                Utf8Path::new("The Sims Complete Collection/Disc 1/01 - Now Entering.mp3"),
-                &None,
-            )
-            .unwrap();
-
-        let queue = system.queue().unwrap();
-        let first = &queue.0[0];
-        assert!(first.path.as_str().contains("Sims"));
-    }
-}
+// TODO: use in-memory database for tests, pass connection into system::new instead of creating in there. also disable scanning?

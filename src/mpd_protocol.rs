@@ -1,6 +1,5 @@
 // pub mod command_format;
 pub mod command_parser;
-#[allow(unused)]
 pub mod query;
 pub mod response_format;
 
@@ -349,7 +348,6 @@ impl Volume {
             panic!("Volume value must be between 0 and 101")
         }
     }
-    #[allow(unused)]
     pub fn get(&self) -> u8 {
         self.0
     }
@@ -453,7 +451,6 @@ pub struct QueueEntry {
 #[serde(rename_all = "lowercase")]
 // TODO: check with yara, it doesn't seem to return directories on my machine? maybe mpc filters them out?
 pub enum ListItem {
-    #[allow(unused)]
     Directory(Utf8PathBuf),
     File(Utf8PathBuf),
 }
@@ -649,7 +646,6 @@ enum SortType {
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq, Hash)]
 pub struct ChannelName(pub String);
 
-#[allow(unused)]
 #[derive(Default, Debug, PartialEq)]
 pub enum StickerType {
     Song,

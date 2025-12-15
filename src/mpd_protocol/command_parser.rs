@@ -171,7 +171,7 @@ pub fn parse(s: &str) -> color_eyre::Result<Command> {
             )
             .with_message("Could not parse")
             .with_label(
-                Label::new(dbg!(e.location.column - 1)..e.location.column - 1)
+                Label::new(e.location.column - 1..e.location.column - 1)
                     .with_message(format!("Expected one of {}", e.expected)),
             )
             .finish()

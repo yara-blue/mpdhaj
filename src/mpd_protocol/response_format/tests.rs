@@ -17,8 +17,8 @@ fn serialize_status() {
             consume: true,
             partition: "default".to_string(),
             volume: Volume::new(50),
-            playlist: 0,
-            playlistlength: 0,
+            playlist: 22,
+            playlistlength: 6,
             state: PlaybackState::Stop,
             lastloadedplaylist: None,
             xfade: Duration::from_secs(5),
@@ -44,7 +44,7 @@ consume: 1
 partition: default
 volume: 50
 playlist: 22
-playlistlength: 0
+playlistlength: 6
 state: stop
 xfade: 5
 song: 5

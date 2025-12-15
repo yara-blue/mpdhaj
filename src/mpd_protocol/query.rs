@@ -85,7 +85,6 @@ impl Default for QueryNode {
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct Query(pub QueryNode);
 
-
 // #[cfg(test)]
 // mod tests {
 //     use super::*;
