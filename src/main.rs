@@ -51,10 +51,11 @@ async fn main() -> Result<()> {
                 .wrap_err("Could not start system")?;
             system.rescan().await?
         }
-        Commands::ListOutputs => {
-            // player::print_outputs();
-            // player::beep_outputs();
-            todo!();
+        Commands::ListOutputs { beep } => {
+            player::outputs::print_all().wrap_err("Failed to list all outputs")?;
+            if beep {
+                player::outputs::beep().wrap_err("Failed to play beep on all outputs")?;
+            }
         }
     };
 

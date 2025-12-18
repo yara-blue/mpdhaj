@@ -15,7 +15,7 @@ use std::{
 use camino::Utf8Path;
 use rodio::{Decoder, OutputStream, Source, mixer::Mixer};
 
-mod list_outputs;
+pub mod outputs;
 
 struct PlayerParams {
     // range: 0..=1.0, weight such that 10%
@@ -44,13 +44,6 @@ pub struct Player {
     audio_output_abort_handle: mpsc::Sender<()>,
     last_song_abort_handle: Option<AbortHandle>,
 }
-// unsafe impl Send for Player {} // TODO: @yara uhhhhhhh... can we do this?
-// There was some effort to get OutputStream Send on mac, it failed. It has to
-// do with the drop logic not being send but you know what we could do....
-// forget about it :)
-//
-// Though thats not nice either... mmmm
-// Maybe we should have the audio stuff be an actor anyway...
 
 /// Aborts the Source this is connected to when it is dropped
 #[derive(Clone)]

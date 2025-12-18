@@ -21,7 +21,10 @@ pub(crate) enum Commands {
     /// and index.
     Scan(RunArgs),
     /// List all the output devices
-    ListOutputs,
+    ListOutputs {
+        #[clap(short, long)]
+        beep: bool,
+    },
 }
 
 #[derive(clap::Parser)]
