@@ -6,12 +6,14 @@ use std::{
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
+        mpsc,
     },
+    thread,
     time::Duration,
 };
 
 use camino::Utf8Path;
-use rodio::{Decoder, OutputStream, Source};
+use rodio::{Decoder, OutputStream, Source, mixer::Mixer};
 
 mod list_outputs;
 
@@ -36,11 +38,19 @@ impl PlayerParams {
 }
 
 pub struct Player {
-    stream: OutputStream,
+    mixer: Mixer,
     params: Arc<PlayerParams>,
-    abort_handle: Option<AbortHandle>,
+    /// Signal the output stream holder thread to stop on drop
+    audio_output_abort_handle: mpsc::Sender<()>,
+    last_song_abort_handle: Option<AbortHandle>,
 }
-unsafe impl Send for Player {} // TODO: @yara uhhhhhhh... can we do this?
+// unsafe impl Send for Player {} // TODO: @yara uhhhhhhh... can we do this?
+// There was some effort to get OutputStream Send on mac, it failed. It has to
+// do with the drop logic not being send but you know what we could do....
+// forget about it :)
+//
+// Though thats not nice either... mmmm
+// Maybe we should have the audio stuff be an actor anyway...
 
 /// Aborts the Source this is connected to when it is dropped
 #[derive(Clone)]
@@ -63,21 +73,40 @@ impl Drop for AbortHandle {
 
 impl Player {
     pub fn new(volume: f32, paused: bool) -> Self {
-        let stream = rodio::speakers::SpeakersBuilder::new()
+        let config = rodio::speakers::SpeakersBuilder::new()
             .default_device()
             .unwrap()
             .default_config()
-            .unwrap()
-            .open_stream()
             .unwrap();
 
+        // The rodio Outputstream gets closed when its dropped. Therefore we
+        // need to hold it. We want Player to be send but the Outputstream is
+        // not. We therefore hold the stream hostage in this thread until Player
+        // drops.
+        let (tx, rx) = mpsc::channel();
+        let (audio_output_abort_handle, abort_rx) = mpsc::channel();
+        thread::Builder::new()
+            .name("audio-output-stream-holder".to_string())
+            .spawn(move || {
+                let stream = config.open_stream().unwrap();
+                let mixer = stream.mixer().clone();
+                tx.send(mixer);
+
+                let _ = abort_rx.recv();
+            })
+            .expect("should be able to spawn threads");
+        let mixer = rx
+            .recv()
+            .expect("audio-output-stream-holder thread should not panic");
+
         Self {
-            stream,
+            mixer,
+            audio_output_abort_handle,
             params: Arc::new(PlayerParams {
                 volume: AtomicF32::new(volume),
                 paused: AtomicBool::new(paused),
             }),
-            abort_handle: None,
+            last_song_abort_handle: None,
         }
     }
 
@@ -90,7 +119,7 @@ impl Player {
 
         // this drops any previous abort handle.
         // Causing any playing song to stop
-        self.abort_handle = Some(abort_handle.clone());
+        self.last_song_abort_handle = Some(abort_handle.clone());
 
         let source = Decoder::try_from(file)?
             .stoppable()
@@ -111,7 +140,7 @@ impl Player {
 
         // ensure the previous song has been stopped before the new one starts
         tokio::time::sleep(AUDIO_THREAD_RESPONSE_LATENCY).await;
-        self.stream.mixer().add(source);
+        self.mixer.add(source);
         Ok(())
     }
 
