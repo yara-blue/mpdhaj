@@ -5,9 +5,12 @@ use gag::Gag;
 use itertools::Itertools;
 use rodio::{
     Source,
-    source::SineWave,
     speakers::{Output, OutputConfig},
 };
+
+mod rodio2;
+use crate::player::outputs::rodio2::const_source::{SineWave, mixer::CollectConstSource};
+use rodio2::const_source::ConstSource;
 
 pub fn print_all() -> Result<()> {
     let (outputs, errors) = outputs()?;
@@ -30,26 +33,28 @@ pub fn print_all() -> Result<()> {
     Ok(())
 }
 
+fn major_a_chord() -> impl Source {
+    [220.5, 138.5, 164.5]
+        .map(|freq| SineWave::<44100>::new(freq))
+        .collect_mixed()
+        .adaptor_to_dynamic()
+}
+
 /// Go through all outputs beeping as you go
 pub fn beep() -> Result<()> {
     let (outputs, _errors) = outputs()?;
 
     for ((config, output), freq) in outputs.into_iter().zip([220., 440.].into_iter().cycle()) {
-        dbg!();
         let mut stream = rodio::speakers::SpeakersBuilder::new()
-            .device(dbg!(output.clone()))?
-            .config(dbg!(config))?
+            .device(output.clone())?
+            .config(config)?
             .open_stream()?;
-        dbg!();
         stream.log_on_drop(false);
         let mixer = stream.mixer();
 
         println!("Playing beep on: {}", output);
-        mixer.add(SineWave::new(freq).take_duration(Duration::from_secs(4)));
+        mixer.add(major_a_chord().take_duration(Duration::from_secs(4)));
         thread::sleep(Duration::from_secs(4));
-
-        // TODO this hangs... why though?
-        dbg!();
     }
     Ok(())
 }
