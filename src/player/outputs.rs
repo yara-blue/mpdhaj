@@ -3,6 +3,7 @@ use std::{thread, time::Duration};
 use color_eyre::{Result, eyre::Context};
 use gag::Gag;
 use itertools::Itertools;
+use klib::core::chord::Chord;
 use rodio::{
     Source,
     speakers::{Output, OutputConfig},
