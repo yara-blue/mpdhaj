@@ -16,7 +16,7 @@ pub use signal_generator::{SawtoothWave, SineWave, SquareWave, TriangleWave};
 
 use periodic_access::PeriodicAccess;
 
-use crate::player::outputs::rodio2::const_source::periodic_access::WithData;
+use crate::const_source::periodic_access::WithData;
 
 pub trait ConstSource<const SR: u32, const CH: u16>: Iterator<Item = Sample> {
     /// This value is free to change at any time

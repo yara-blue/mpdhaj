@@ -1,11 +1,10 @@
 // adapted from rodio. Copyright rodio contributors.
 // Tests and docs removed for brevity (will be re-added once contributing to upstream)
 
-use rodio::{ChannelCount, SampleRate, Source, nz};
 use std::f32::consts::TAU;
 use std::time::Duration;
 
-use crate::player::outputs::rodio2::ConstSource;
+use crate::ConstSource;
 
 pub type GeneratorFunction = fn(f32) -> f32;
 
@@ -43,7 +42,6 @@ pub struct SignalGenerator<const SR: u32> {
     function: GeneratorFunction,
     phase_step: f32,
     phase: f32,
-    period: f32,
 }
 
 impl<const SR: u32> SignalGenerator<SR> {
@@ -68,7 +66,6 @@ impl<const SR: u32> SignalGenerator<SR> {
             function: generator_function,
             phase_step,
             phase: 0.0f32,
-            period,
         }
     }
 }

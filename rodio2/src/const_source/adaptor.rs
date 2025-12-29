@@ -1,12 +1,10 @@
-use std::num::{NonZero, NonZeroU32};
+use std::num::NonZeroU32;
 use std::time::Duration;
 
 use rodio::Source as DynamicSource;
-use rodio::source::PeriodicAccess;
 
-use super::super::super::rodio2;
 use super::ConstSource;
-use rodio2::conversions::resampler::VariableInputResampler;
+use crate::conversions::resampler::VariableInputResampler;
 
 pub struct DynamicToConstant<const SR: u32, const CH: u16, S: DynamicSource> {
     inner: VariableInputResampler<S>,

@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use itertools::Itertools;
 
-use crate::player::outputs::rodio2::ConstSource;
+use crate::ConstSource;
 
 pub struct UniformArrayList<const SR: u32, const CH: u16, const N: usize, S>
 where

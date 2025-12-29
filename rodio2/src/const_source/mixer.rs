@@ -3,8 +3,6 @@ use std::time::Duration;
 use itertools::Itertools;
 use rodio::Sample;
 
-use crate::player::outputs::rodio2::const_source::list::UniformArrayList;
-
 use super::ConstSource;
 
 /// An optimal mixer that mixer `N` identical sources each with samplerate `SR`

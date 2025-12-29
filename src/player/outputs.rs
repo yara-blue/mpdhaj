@@ -4,12 +4,10 @@ use color_eyre::{Result, eyre::Context};
 use gag::Gag;
 use itertools::Itertools;
 use rodio::{
-    Source,
-    speakers::{Output, OutputConfig},
+    nz, speakers::{self, Output, OutputConfig}, DynamicSource
 };
 
-pub(crate) mod rodio2;
-use rodio2::const_source::{CollectConstSource, ConstSource, SineWave};
+use rodio::const_source::{CollectConstSource, ConstSource, SineWave};
 
 pub fn print_all() -> Result<()> {
     let (outputs, errors) = outputs()?;
@@ -32,7 +30,7 @@ pub fn print_all() -> Result<()> {
     Ok(())
 }
 
-fn major_a_chord() -> impl Source {
+fn major_a_chord() -> impl DynamicSource {
     [220.5, 138.5, 164.5]
         .map(|freq| SineWave::<44100>::new(freq))
         .collect_mixed()
@@ -44,7 +42,7 @@ pub fn beep() -> Result<()> {
     let (outputs, _errors) = outputs()?;
 
     for ((config, output), freq) in outputs.into_iter().zip([220., 440.].into_iter().cycle()) {
-        let mut stream = rodio::speakers::SpeakersBuilder::new()
+        let mut stream = speakers::SpeakersBuilder::new()
             .device(output.clone())?
             .config(config)?
             .open_stream()?;
@@ -62,23 +60,23 @@ fn outputs() -> Result<(Vec<(OutputConfig, Output)>, Vec<color_eyre::Report>)> {
     let outputs = {
         // alsa loves spamming to stderr
         let gag = Gag::stderr().unwrap();
-        rodio::speakers::available_outputs()
+        speakers::available_outputs()
     }
     .wrap_err("Could not list available inputs")?;
 
     let (outputs, errors): (Vec<_>, Vec<_>) = outputs
         .into_iter()
         .map(|output| {
-            let config = rodio::speakers::SpeakersBuilder::new()
+            let config = speakers::SpeakersBuilder::new()
                 .device(output.clone())
                 .wrap_err("Could not set device")?
                 .default_config()
                 .wrap_err("Could not get default config")?
-                .try_channels(rodio::nz!(2))
+                .try_channels(nz!(2))
                 .ok()
                 .map(|config| {
                     config // these rates that can be trivially resampled into 44100
-                        .prefer_sample_rates([rodio::nz!(44100), rodio::nz!(88200)])
+                        .prefer_sample_rates([nz!(44100), nz!(88200)])
                         .get_config()
                 });
             Ok::<_, color_eyre::Report>((config, output))

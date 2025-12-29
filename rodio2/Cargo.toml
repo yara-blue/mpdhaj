@@ -1,0 +1,15 @@
+[package]
+name = "rodio2"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rodio = { git = "https://www.github.com/RustAudio/rodio",  branch = "output-builder", features = ["experimental", "playback"] }
+rubato = "1.0.0-preview.1"
+audioadapter = "1.0"
+audioadapter-buffers = "1.0"
+itertools = "0.14.0"
+
+[dev-dependencies]
+spectrum-analyzer = "1.7.0"
+divan = "0.1.21"

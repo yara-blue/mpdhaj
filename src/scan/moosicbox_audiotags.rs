@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use camino::Utf8PathBuf;
-use rodio::Source;
+use rodio::DynamicSource;
 
 use crate::scan::Metadata;
 use crate::scan::{FormatScanner, UNKNOWN};

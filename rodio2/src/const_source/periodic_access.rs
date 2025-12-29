@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use rodio::Sample;
 
-use crate::player::outputs::rodio2::ConstSource;
+use crate::ConstSource;
 
 pub struct PeriodicAccess<const SR: u32, const CH: u16, S: ConstSource<SR, CH>> {
     inner: S,

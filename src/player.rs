@@ -13,9 +13,9 @@ use std::{
 };
 
 use camino::Utf8Path;
-use rodio::{Decoder, OutputStream, Source, mixer::Mixer};
+use rodio::{const_source, dynamic_source, mixer, speakers, Decoder, DynamicSource, OutputStream};
 
-use crate::player::outputs::rodio2::{
+use rodio::{
     self, ConstSource,
     const_source::{
         adaptor,
@@ -45,19 +45,19 @@ impl PlayerParams {
     }
 }
 
-type MpdSourceInner = rodio2::const_source::periodic_access::WithData<
+type MpdSourceInner = const_source::periodic_access::WithData<
     44100,
     2,
     adaptor::DynamicToConstant<
         44100,
         2,
-        rodio::source::Amplify<
-            rodio::source::Pausable<rodio::source::Stoppable<Decoder<BufReader<File>>>>,
+        dynamic_source::Amplify<
+            dynamic_source::Pausable<dynamic_source::Stoppable<Decoder<BufReader<File>>>>,
         >,
     >,
     (Arc<PlayerParams>, AbortHandle),
 >;
-type MpdSource = rodio2::const_source::periodic_access::PeriodicAccess<44100, 2, MpdSourceInner>;
+type MpdSource = const_source::periodic_access::PeriodicAccess<44100, 2, MpdSourceInner>;
 
 pub struct Player {
     queue: UniformQueueHandle<44100, 2, MpdSource>,
@@ -88,7 +88,7 @@ impl Drop for AbortHandle {
 
 impl Player {
     pub fn new(volume: f32, paused: bool) -> Self {
-        let config = rodio::speakers::SpeakersBuilder::new()
+        let config = speakers::SpeakersBuilder::new()
             .default_device()
             .unwrap()
             .default_config()
@@ -147,7 +147,7 @@ impl Player {
             .amplify(1.0);
         let const_source = adaptor::DynamicToConstant::<44100, 2, _>::new(source)
             .with_data((params, abort_handle))
-            .periodic_access(AUDIO_THREAD_RESPONSE_LATENCY, fun_name);
+            .periodic_access(AUDIO_THREAD_RESPONSE_LATENCY, update_params);
 
         // ensure the previous song has been stopped before the new one starts
         tokio::time::sleep(AUDIO_THREAD_RESPONSE_LATENCY).await;
@@ -166,20 +166,7 @@ impl Player {
     }
 }
 
-fn fun_name(
-    source: &mut rodio2::const_source::periodic_access::WithData<
-        44100,
-        2,
-        adaptor::DynamicToConstant<
-            44100,
-            2,
-            rodio::source::Amplify<
-                rodio::source::Pausable<rodio::source::Stoppable<Decoder<BufReader<File>>>>,
-            >,
-        >,
-        (Arc<PlayerParams>, AbortHandle),
-    >,
-) {
+fn update_params(source: &mut MpdSourceInner) {
     let (params, abort_handle) = &source.data;
 
     let amplify = source.inner.inner_mut();

@@ -2,7 +2,6 @@ use core::iter;
 use std::time::Duration;
 
 use audioadapter_buffers::direct::InterleavedSlice;
-use audioadapter_buffers::owned::InterleavedOwned;
 use rodio::{ChannelCount, Sample, SampleRate, Source};
 use rubato::{Resampler, SincInterpolationParameters, calculate_cutoff};
 
@@ -60,7 +59,7 @@ impl<S: Source> VariableInputResampler<S> {
             resampler,
             input,
         };
-        this.bootstrap();
+        this.resample_buffer();
         this
     }
 
@@ -95,42 +94,6 @@ impl<S: Source> VariableInputResampler<S> {
         (channels, sample_rate)
     }
 
-    fn bootstrap(&mut self) -> Option<()> {
-        let (channels, sample_rate) = self.collect_span();
-
-        let input = InterleavedSlice::new(
-            &self.input_buffer,
-            channels.get() as usize,
-            self.input_buffer.len() / channels.get() as usize,
-        )
-        .expect("we pre allocate enough space");
-
-        let mut output = InterleavedSlice::new_mut(
-            &mut self.output_buffer,
-            channels.get() as usize,
-            self.resampler.output_frames_next(),
-        )
-        .expect("we pre allocate enough space");
-
-        let (input_frames, output_frames) = self.resampler
-            .process_into_buffer(&input, &mut output, None).expect("Input and output buffer channels are correct as they have been set by the resampler. The buffer for each channel is the same length. The buffer length is what is requested the resampler.");
-
-        debug_assert_eq!(
-            input_frames,
-            self.input_buffer.len() / channels.get() as usize
-        );
-        debug_assert_eq!(
-            output_frames,
-            self.output_buffer.len() / channels.get() as usize
-        );
-
-        // https://github.com/HEnquist/rubato/blob/preview_1.0/examples/fixedout_ramp64.rs
-        // extract out using audio adapter thingy
-
-        self.next_sample = 0;
-        Some(())
-    }
-
     #[cold]
     fn resample_buffer(&mut self) -> Option<()> {
         let (channels, sample_rate) = self.collect_span();
@@ -149,6 +112,12 @@ impl<S: Source> VariableInputResampler<S> {
         )
         .expect("we pre allocate enough space");
 
+        self.resampler
+            .set_resample_ratio(
+                self.target_sample_rate.get() as f64 / sample_rate.get() as f64,
+                false,
+            )
+            .expect("Could not change sample ratio");
         let (input_frames, output_frames) = self.resampler
             .process_into_buffer(&input, &mut output, None).expect("Input and output buffer channels are correct as they have been set by the resampler. The buffer for each channel is the same length. The buffer length is what is requested the resampler.");
 
@@ -208,7 +177,6 @@ impl<S: Source> Iterator for VariableInputResampler<S> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
     use std::time::Duration;
 
     use itertools::Itertools;
@@ -217,7 +185,7 @@ mod tests {
     use rodio::{ChannelCount, SampleRate, Source, nz};
     use spectrum_analyzer::{FrequencyLimit, scaling::divide_by_N_sqrt};
 
-    use crate::player::outputs::rodio2::conversions::resampler::VariableInputResampler;
+    use crate::conversions::resampler::VariableInputResampler;
 
     pub(crate) fn sine(channels: ChannelCount, sample_rate: SampleRate) -> impl Source + Clone {
         let sine = SignalGenerator::new(sample_rate, 400.0, Function::Sine)
