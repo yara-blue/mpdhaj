@@ -3,15 +3,13 @@ use std::{thread, time::Duration};
 use color_eyre::{Result, eyre::Context};
 use gag::Gag;
 use itertools::Itertools;
-use klib::core::chord::Chord;
 use rodio::{
     Source,
     speakers::{Output, OutputConfig},
 };
 
-mod rodio2;
-use crate::player::outputs::rodio2::const_source::{SineWave, mixer::CollectConstSource};
-use rodio2::const_source::ConstSource;
+pub(crate) mod rodio2;
+use rodio2::const_source::{CollectConstSource, ConstSource, SineWave};
 
 pub fn print_all() -> Result<()> {
     let (outputs, errors) = outputs()?;

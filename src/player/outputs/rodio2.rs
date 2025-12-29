@@ -9,6 +9,7 @@ use rodio::{ChannelCount, Sample, SampleRate, Source, source::SineWave};
 
 pub mod const_source;
 pub mod fixed_source;
+pub mod conversions;
 
 pub use const_source::ConstSource;
 pub use fixed_source::FixedSource;

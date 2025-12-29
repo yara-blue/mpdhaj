@@ -1,0 +1,44 @@
+use std::num::{NonZero, NonZeroU32};
+use std::time::Duration;
+
+use rodio::Source as DynamicSource;
+use rodio::source::PeriodicAccess;
+
+use super::super::super::rodio2;
+use super::ConstSource;
+use rodio2::conversions::resampler::VariableInputResampler;
+
+pub struct DynamicToConstant<const SR: u32, const CH: u16, S: DynamicSource> {
+    inner: VariableInputResampler<S>,
+}
+
+impl<const SR: u32, const CH: u16, S: DynamicSource> DynamicToConstant<SR, CH, S> {
+    pub fn new(source: S) -> Self {
+        Self {
+            inner: VariableInputResampler::new(
+                source,
+                const { NonZeroU32::new(SR).expect("Samplerate must be nonzero") },
+            ),
+        }
+    }
+
+    pub fn inner_mut(&mut self) -> &mut S {
+        self.inner.inner_mut()
+    }
+}
+
+impl<const SR: u32, const CH: u16, S: DynamicSource> ConstSource<SR, CH>
+    for DynamicToConstant<SR, CH, S>
+{
+    fn total_duration(&self) -> Option<Duration> {
+        self.inner.total_duration()
+    }
+}
+
+impl<const SR: u32, const CH: u16, S: DynamicSource> Iterator for DynamicToConstant<SR, CH, S> {
+    type Item = rodio::Sample;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        todo!()
+    }
+}

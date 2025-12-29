@@ -5,11 +5,21 @@ use rodio::Sample;
 use rodio::SampleRate;
 use rodio::Source as DynamicSource; // will be renamed to this upstream
 
+pub mod adaptor;
+pub mod list;
 pub mod mixer;
+pub mod periodic_access;
+pub mod queue;
+
 pub mod signal_generator;
 pub use signal_generator::{SawtoothWave, SineWave, SquareWave, TriangleWave};
 
+use periodic_access::PeriodicAccess;
+
+use crate::player::outputs::rodio2::const_source::periodic_access::WithData;
+
 pub trait ConstSource<const SR: u32, const CH: u16>: Iterator<Item = Sample> {
+    /// This value is free to change at any time
     fn total_duration(&self) -> Option<Duration>;
 
     fn adaptor_to_dynamic(self) -> ConstSourceAdaptor<SR, CH, Self>
@@ -17,6 +27,24 @@ pub trait ConstSource<const SR: u32, const CH: u16>: Iterator<Item = Sample> {
         Self: Sized,
     {
         ConstSourceAdaptor { inner: self }
+    }
+
+    fn periodic_access(
+        self,
+        call_every: Duration,
+        arg: fn(&mut Self),
+    ) -> PeriodicAccess<SR, CH, Self>
+    where
+        Self: Sized,
+    {
+        periodic_access::PeriodicAccess::new(self, call_every, arg)
+    }
+
+    fn with_data<D>(self, data: D) -> WithData<SR, CH, Self, D>
+    where
+        Self: Sized,
+    {
+        periodic_access::WithData { inner: self, data }
     }
 }
 
@@ -66,5 +94,28 @@ where
 
     fn total_duration(&self) -> Option<std::time::Duration> {
         self.inner.total_duration()
+    }
+}
+
+pub trait CollectConstSource<const SR: u32, const CH: u16, const N: usize, S>
+where
+    S: ConstSource<SR, CH>,
+{
+    fn collect_mixed(self) -> mixer::UniformArrayMixer<SR, CH, N, S>;
+    fn collect_list(self) -> list::UniformArrayList<SR, CH, N, S>;
+}
+
+impl<const SR: u32, const CH: u16, const N: usize, S> CollectConstSource<SR, CH, N, S> for [S; N]
+where
+    S: ConstSource<SR, CH>,
+{
+    fn collect_mixed(self) -> mixer::UniformArrayMixer<SR, CH, N, S> {
+        mixer::UniformArrayMixer { sources: self }
+    }
+    fn collect_list(self) -> list::UniformArrayList<SR, CH, N, S> {
+        list::UniformArrayList {
+            sources: self,
+            current: 0,
+        }
     }
 }
