@@ -57,6 +57,7 @@ pub struct SourceId {
     pub source_id: u32,
 }
 
+#[derive(Debug)]
 pub struct QueueDropped;
 
 impl<const SR: u32, const CH: u16, S> UniformQueueHandle<SR, CH, S>

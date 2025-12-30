@@ -13,3 +13,10 @@ itertools = "0.14.0"
 [dev-dependencies]
 spectrum-analyzer = "1.7.0"
 divan = "0.1.21"
+
+
+[[bench]]
+name = "queue"
+harness = false
+
+

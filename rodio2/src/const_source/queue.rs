@@ -49,18 +49,16 @@ pub struct SourceId {
     pub source_id: u32,
 }
 
+#[derive(Debug)]
 pub struct QueueDropped;
 
 impl<const SR: u32, const CH: u16> QueueHandle<SR, CH> {
-    pub fn add(
-        &self,
-        source: impl ConstSource<SR, CH> + 'static,
-    ) -> Result<SourceId, QueueDropped> {
+    pub fn add(&self, source: Box<dyn ConstSource<SR, CH>>) -> Result<SourceId, QueueDropped> {
         // wraps on overflow, should be okay as long as there are < 4 million
         // sources in the list.
         let source_id = self.next_id.fetch_add(1, Ordering::Relaxed);
         self.tx
-            .send((Box::new(source), source_id))
+            .send((source, source_id))
             .map_err(|_| QueueDropped)?;
 
         Ok(SourceId {

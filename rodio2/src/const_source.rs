@@ -6,17 +6,22 @@ use rodio::SampleRate;
 use rodio::Source as DynamicSource; // will be renamed to this upstream
 
 pub mod adaptor;
+pub mod conversions;
 pub mod list;
 pub mod mixer;
 pub mod periodic_access;
 pub mod queue;
+pub mod take;
 
 pub mod signal_generator;
 pub use signal_generator::{SawtoothWave, SineWave, SquareWave, TriangleWave};
 
 use periodic_access::PeriodicAccess;
 
+use crate::const_source::conversions::channelcount::ChannelConvertor;
 use crate::const_source::periodic_access::WithData;
+use crate::const_source::take::TakeDuration;
+use crate::const_source::take::TakeSamples;
 
 pub trait ConstSource<const SR: u32, const CH: u16>: Iterator<Item = Sample> {
     /// This value is free to change at any time
@@ -27,6 +32,30 @@ pub trait ConstSource<const SR: u32, const CH: u16>: Iterator<Item = Sample> {
         Self: Sized,
     {
         ConstSourceAdaptor { inner: self }
+    }
+
+    fn with_channel_count<const CH_OUT: u16>(self) -> ChannelConvertor<SR, CH, CH_OUT, Self>
+    where
+        Self: Sized,
+    {
+        ChannelConvertor::new(self)
+    }
+
+    fn take_samples(self, n: u64) -> TakeSamples<SR, CH, Self>
+    where
+        Self: Sized,
+    {
+        TakeSamples {
+            inner: self,
+            left: n,
+        }
+    }
+
+    fn take_duration(self, duration: Duration) -> TakeDuration<SR, CH, Self>
+    where
+        Self: Sized,
+    {
+        TakeDuration::new(self, duration)
     }
 
     fn periodic_access(
