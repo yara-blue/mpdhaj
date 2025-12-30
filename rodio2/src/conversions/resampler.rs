@@ -48,13 +48,18 @@ impl<S: Source> VariableInputResampler<S> {
             "sample rates are non zero, and we are not changing it so there is no resample ratio",
         );
 
+        // TODO redo on channel count change
+        let mut output_buffer = Vec::new();
+        output_buffer
+            .reserve_exact(resampler.output_frames_max() * input.channels().get() as usize);
+
+        let mut input_buffer = Vec::new();
+        input_buffer.reserve_exact(resampler.input_frames_max() * input.channels().get() as usize);
+
         let mut this = Self {
             next_sample: 0,
-            output_buffer: vec![
-                0.0;
-                resampler.output_frames_max() * input.channels().get() as usize
-            ],
-            input_buffer: vec![0.0; resampler.input_frames_max() * input.channels().get() as usize],
+            output_buffer,
+            input_buffer,
             target_sample_rate,
             resampler,
             input,
@@ -72,31 +77,41 @@ impl<S: Source> VariableInputResampler<S> {
     }
 
     /// collect samples until rate changes or maximum
-    fn collect_span(&mut self) -> (ChannelCount, SampleRate) {
+    fn collect_span(&mut self) -> Option<(ChannelCount, SampleRate)> {
         let channels = self.input.channels();
         let sample_rate = self.input.sample_rate();
+        let current_span_len = self.input.current_span_len();
 
-        let input_min = self.resampler.input_frames_next();
-        let input_max = self.resampler.input_frames_max().max(4069);
-        match self.input.current_span_len() {
+        let next_size = self.resampler.input_frames_next() * channels.get() as usize;
+
+        let mut input = self.input.by_ref().peekable();
+        if input.peek().is_none() {
+            return None;
+        }
+
+        self.input_buffer.clear();
+        match current_span_len {
             // parameters will never change (yay)
             None => self
                 .input_buffer
-                .extend(self.input.by_ref().chain(iter::repeat(0.0)).take(input_min)),
-            Some(span) => self.input_buffer.extend(
-                self.input
-                    .by_ref()
-                    .take(span.min(input_max))
-                    .chain(iter::repeat(0.0))
-                    .take(input_min),
-            ),
+                .extend(input.chain(iter::repeat(0.0)).take(next_size)),
+            Some(span) => self
+                .input_buffer
+                .extend(input.take(span).chain(iter::repeat(0.0)).take(next_size)),
         }
-        (channels, sample_rate)
+        Some((channels, sample_rate))
     }
 
     #[cold]
     fn resample_buffer(&mut self) -> Option<()> {
-        let (channels, sample_rate) = self.collect_span();
+        let (channels, sample_rate) = self.collect_span()?;
+
+        self.resampler
+            .set_resample_ratio(
+                self.target_sample_rate.get() as f64 / sample_rate.get() as f64,
+                false,
+            )
+            .expect("Could not change sample ratio");
 
         let input = InterleavedSlice::new(
             &self.input_buffer,
@@ -105,6 +120,11 @@ impl<S: Source> VariableInputResampler<S> {
         )
         .expect("we pre allocate enough space");
 
+        // TODO unsafe time :)
+        self.output_buffer.resize(
+            self.resampler.output_frames_next() * channels.get() as usize,
+            0.0,
+        );
         let mut output = InterleavedSlice::new_mut(
             &mut self.output_buffer,
             channels.get() as usize,
@@ -112,26 +132,21 @@ impl<S: Source> VariableInputResampler<S> {
         )
         .expect("we pre allocate enough space");
 
-        self.resampler
-            .set_resample_ratio(
-                self.target_sample_rate.get() as f64 / sample_rate.get() as f64,
-                false,
-            )
-            .expect("Could not change sample ratio");
-        let (input_frames, output_frames) = self.resampler
-            .process_into_buffer(&input, &mut output, None).expect("Input and output buffer channels are correct as they have been set by the resampler. The buffer for each channel is the same length. The buffer length is what is requested the resampler.");
+        let (input_frames, output_frames) = self
+            .resampler
+            .process_into_buffer(&input, &mut output, None)
+            .expect("Buffers passed in are of the correct sized");
 
         debug_assert_eq!(
             input_frames,
-            self.input_buffer.len() / channels.get() as usize
+            self.input_buffer.len() / channels.get() as usize,
+            "We should provide exactly the samples needed by the resampler"
         );
-        debug_assert_eq!(
-            output_frames,
-            self.output_buffer.len() / channels.get() as usize
-        );
+
+        self.output_buffer
+            .truncate(output_frames / channels.get() as usize);
 
         self.next_sample = 0;
-
         Some(())
     }
 }

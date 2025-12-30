@@ -20,4 +20,6 @@ divan = "0.1.21"
 name = "queue"
 harness = false
 
-
+[[bench]]
+name = "mixer"
+harness = false

@@ -137,6 +137,12 @@ where
     }
 }
 
+impl<const SR: u32, const CH: u16> ConstSource<SR, CH> for Box<dyn ConstSource<SR, CH>> {
+    fn total_duration(&self) -> Option<Duration> {
+        self.as_ref().total_duration()
+    }
+}
+
 pub trait CollectConstSource<const SR: u32, const CH: u16, const N: usize, S>
 where
     S: ConstSource<SR, CH>,

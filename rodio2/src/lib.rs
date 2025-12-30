@@ -17,16 +17,3 @@ pub mod conversions;
 
 pub use const_source::ConstSource;
 pub use fixed_source::FixedSource;
-
-
-// impl<SR, CH> ConstantSource<SR, CH> for SineWave<SR, CH> {}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_name() {
-        
-    }
-}
