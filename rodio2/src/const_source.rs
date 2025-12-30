@@ -1,3 +1,5 @@
+use std::num::NonZeroU16;
+use std::num::NonZeroU32;
 use std::time::Duration;
 
 use rodio::ChannelCount;
@@ -18,6 +20,7 @@ pub use signal_generator::{SawtoothWave, SineWave, SquareWave, TriangleWave};
 
 use periodic_access::PeriodicAccess;
 
+use crate::FixedSource;
 use crate::const_source::conversions::channelcount::ChannelConvertor;
 use crate::const_source::periodic_access::WithData;
 use crate::const_source::take::TakeDuration;
@@ -96,7 +99,23 @@ where
     }
 }
 
-// TODO rename Source to DynamicSource
+impl<const SR: u32, const CH: u16, S> FixedSource for ConstSourceAdaptor<SR, CH, S>
+where
+    S: ConstSource<SR, CH>,
+{
+    fn channels(&self) -> ChannelCount {
+        const { NonZeroU16::new(CH).expect("channel count must be larger then zero") }
+    }
+
+    fn sample_rate(&self) -> SampleRate {
+        const { NonZeroU32::new(SR).expect("sample rate must be larger then zero") }
+    }
+
+    fn total_duration(&self) -> Option<Duration> {
+        self.inner.total_duration()
+    }
+}
+
 impl<const SR: u32, const CH: u16, S> DynamicSource for ConstSourceAdaptor<SR, CH, S>
 where
     S: ConstSource<SR, CH>,
@@ -106,19 +125,11 @@ where
     }
 
     fn channels(&self) -> ChannelCount {
-        const {
-            assert!(CH != 0, "Channel count for ConstantSource may not be zero");
-        }
-        // checked at compile time above
-        unsafe { ChannelCount::new_unchecked(CH as u16) }
+        const { NonZeroU16::new(CH).expect("channel count must be larger then zero") }
     }
 
     fn sample_rate(&self) -> SampleRate {
-        const {
-            assert!(SR != 0, "SampleRate for ConstantSource may not be zero");
-        }
-        // checked at compile time above
-        unsafe { SampleRate::new_unchecked(SR as u32) }
+        const { NonZeroU32::new(SR).expect("sample rate must be larger then zero") }
     }
 
     fn total_duration(&self) -> Option<std::time::Duration> {

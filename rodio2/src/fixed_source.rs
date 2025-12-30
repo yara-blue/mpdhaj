@@ -5,12 +5,22 @@ use rodio::Sample;
 use rodio::SampleRate;
 use rodio::Source as DynamicSource; // will be renamed to this upstream
 
+pub mod queue;
+pub mod take;
+
 pub trait FixedSource: Iterator<Item = Sample> {
     /// May NEVER return something else once its returned a value
     fn channels(&self) -> ChannelCount;
     /// May NEVER return something else once its returned a value
     fn sample_rate(&self) -> SampleRate;
     fn total_duration(&self) -> Option<Duration>;
+
+    fn take_duration(self, duration: Duration) -> take::TakeDuration<Self>
+    where
+        Self: Sized,
+    {
+        take::TakeDuration::new(self, duration)
+    }
 }
 
 // we need this only because of the silly orphan rule, will go away once upstreamed
