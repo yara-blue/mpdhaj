@@ -1,99 +1,34 @@
-//! This resampler supports a `DynamicSource` as input. That comes with a lot of
-//! overhead as it needs to deal with audio changing samplerate or channel count
-//! *at any point*.
-//!
-//! This resampler may need to inject zero padding if spans get shorter then 2 *
-//! 2048 frames.
-//!
-//! Please use a `FixedSource` or `ConstSource`. These can be efficiently
-//! resampled.
-
-// The main complication is that we need
-// small for the resampler. We need to pad those with zeros. We can not cut
-// those off as the resampler maintains state between segments.
-//
-//
-// Example where we chunk naively and have to pad with zeros
-// --------------------------------------------------------------------
-// | span A                    | span B                  | span C
-// --------------------------------------------------------------------
-// |     A chunk       | chunk | <- this chunk is too small
-// --------------------------------------------------------------------
-// | A                 | A     000| B               |                 |
-//  ******************* ~~~~~~~~~~ ***************** *****************
-//  ^                      ^
-//  max chunk size for     min chunk size for resampling
-//  resampling A params    A params, need zero padding to get there.
-//
-//
-// Example of adapting chunk size to prevent zero padding
-// --------------------------------------------------------------------
-// | span A                    | span B                  | span C
-// --------------------------------------------------------------------
-// | ********** <- Min A chunk size (same as above)
-//   ****************** <- Max A chunk size (same as above)
-//
-//
-// Smart chunking:
-// ------------------------------------------------------------------------
-// |     A       |     A       |
-// ------------------------------------------------------------------------
-//  ************* ~~~~~~~~~~~~~  <- Minimum size
-//  ^
-//  Slightly larger then minimum size
-//  so we have enough samples for ending
-//  the span
-
 use core::iter;
 
 use audioadapter_buffers::direct::InterleavedSlice;
-use rodio::{ChannelCount, Sample, SampleRate, Source};
-use rubato::{Resampler, SincInterpolationParameters, calculate_cutoff};
+use rodio::{Sample, SampleRate};
+use rubato::Resampler as _;
 
-pub struct VariableInputResampler<S> {
+use crate::FixedSource;
+
+pub struct Resampler<S> {
     input: S,
     next_sample: usize,
     output_buffer: Vec<Sample>,
     input_buffer: Vec<Sample>,
     target_sample_rate: SampleRate,
-    resampler: rubato::Async<Sample>,
+    resampler: rubato::Fft<Sample>,
 }
 
-// Parameters based on camilladsp Balanced profile:
-// https://github.com/HEnquist/camilladsp/blob/master/README.md#asyncsinc-asynchronous-resampling-with-anti-aliasing
-// Noise floor at -170dB. (Rather overkill..)
-fn high_quality_parameters() -> SincInterpolationParameters {
-    let window = rubato::WindowFunction::BlackmanHarris2;
-    let sinc_len = 128;
-    let f_cutoff = calculate_cutoff(sinc_len, window);
-    // based on example fixedout_ramp64.rs in the rubato repo
-    SincInterpolationParameters {
-        sinc_len,
-        f_cutoff,
-        oversampling_factor: 512,
-        interpolation: rubato::SincInterpolationType::Quadratic, // highest quality
-        window,
-    }
-}
-
-impl<S: Source> VariableInputResampler<S> {
+impl<S: FixedSource> Resampler<S> {
     pub fn new(input: S, target_sample_rate: SampleRate) -> Self {
-        let chunk_size_in = 2048;
-        let ratio = target_sample_rate.get() as f64 / input.sample_rate().get() as f64;
-
-        let resampler = rubato::Async::new_sinc(
-            ratio,
-            10.0,
-            &high_quality_parameters(),
-            chunk_size_in,
+        let resampler = rubato::Fft::new(
+            input.sample_rate().get() as usize,
+            target_sample_rate.get() as usize,
+            2048,
+            1,
             input.channels().get() as usize,
-            rubato::FixedAsync::Output,
+            rubato::FixedSync::Both,
         )
         .expect(
             "sample rates are non zero, and we are not changing it so there is no resample ratio",
         );
 
-        // TODO redo on channel count change
         let mut output_buffer = Vec::new();
         output_buffer
             .reserve_exact(resampler.output_frames_max() * input.channels().get() as usize);
@@ -130,63 +65,34 @@ impl<S: Source> VariableInputResampler<S> {
         self.input
     }
 
-    /// collect samples until rate changes or maximum
-    fn collect_span(&mut self) -> Option<(ChannelCount, usize)> {
-        let channels = self.input.channels();
-        let sample_rate = self.input.sample_rate();
-        let current_span_len = self.input.current_span_len();
-
-        // when this changes we need to aggressively empty the resampler
-        self.resampler
-            .set_resample_ratio(
-                self.target_sample_rate.get() as f64 / sample_rate.get() as f64,
-                false, // do not ramp it, apply new ratio on next chunk
-            )
-            .expect("Could not change sample ratio");
-        let next_size = self.resampler.input_frames_next() * channels.get() as usize;
-
-        let mut input = self.input.by_ref().peekable();
-        if input.peek().is_none() {
-            return None;
-        }
-
-        let mut padding_samples = 0;
-        let padding = iter::repeat(0.0).inspect(|_| padding_samples += 1);
-
-        self.input_buffer.clear();
-        match current_span_len {
-            None => self // parameters will never change (yay)
-                .input_buffer
-                .extend(input.chain(padding).take(next_size)),
-            Some(span) => self
-                .input_buffer // padding here is a worste case crutch
-                .extend(input.take(span).chain(padding).take(next_size)),
-        }
-        if padding_samples > 0 {
-            dbg!(padding_samples);
-        }
-        Some((channels, padding_samples))
-    }
-
     #[cold]
     fn resample_buffer(&mut self) -> Option<()> {
-        let (channels, padding) = self.collect_span()?;
+        let channels = self.input.channels().get() as usize;
+        let needed_samples = self.resampler.input_frames_next() * channels;
+        self.input_buffer.clear();
+        self.input_buffer
+            .extend(self.input.by_ref().take(needed_samples));
+
+        let mut input_padding = 0;
+        if self.input_buffer.is_empty() {
+            return None;
+        } else if dbg!(self.input_buffer.len()) < dbg!(needed_samples) {
+            input_padding = needed_samples - self.input_buffer.len();
+            self.input_buffer.resize(needed_samples, 0.0);
+        };
 
         let input_adapter = InterleavedSlice::new(
             &self.input_buffer,
-            channels.get() as usize,
-            self.input_buffer.len() / channels.get() as usize,
+            self.input.channels().get() as usize,
+            self.input_buffer.len() / self.input.channels().get() as usize,
         )
         .expect("we pre allocate enough space");
 
-        self.output_buffer.resize(
-            // todo should not need to do this init max alloc
-            self.resampler.output_frames_next() * channels.get() as usize,
-            0.0,
-        );
+        self.output_buffer
+            .resize(self.output_buffer.capacity(), 0.0);
         let mut output_adapter = InterleavedSlice::new_mut(
             &mut self.output_buffer,
-            channels.get() as usize,
+            self.input.channels().get() as usize,
             self.resampler.output_frames_next(),
         )
         .expect("we pre allocate enough space");
@@ -198,24 +104,21 @@ impl<S: Source> VariableInputResampler<S> {
 
         debug_assert_eq!(
             input_frames,
-            self.input_buffer.len() / channels.get() as usize,
+            self.input_buffer.len() / self.input.channels().get() as usize,
             "We should provide exactly the samples needed by the resampler"
         );
 
-        self.output_buffer
-            .truncate(output_frames / channels.get() as usize);
+        let output_padding = input_padding * self.target_sample_rate.get() as usize
+            / self.input.sample_rate().get() as usize;
 
+        self.output_buffer
+            .truncate(output_frames * self.input.channels().get() as usize - output_padding);
         self.next_sample = 0;
         Some(())
     }
 }
 
-impl<S: Source> Source for VariableInputResampler<S> {
-    fn current_span_len(&self) -> Option<usize> {
-        // recalculate spans based on resampling ratio....
-        todo!() 
-    }
-
+impl<S: FixedSource> FixedSource for Resampler<S> {
     fn channels(&self) -> rodio::ChannelCount {
         self.input.channels()
     }
@@ -229,7 +132,7 @@ impl<S: Source> Source for VariableInputResampler<S> {
     }
 }
 
-impl<S: Source> VariableInputResampler<S> {
+impl<S: FixedSource> Resampler<S> {
     fn next_sample(&mut self) -> Option<Sample> {
         let res = self.output_buffer.get(self.next_sample);
         self.next_sample += 1;
@@ -237,7 +140,7 @@ impl<S: Source> VariableInputResampler<S> {
     }
 }
 
-impl<S: Source> Iterator for VariableInputResampler<S> {
+impl<S: FixedSource> Iterator for Resampler<S> {
     type Item = Sample;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -252,17 +155,21 @@ impl<S: Source> Iterator for VariableInputResampler<S> {
 
 #[cfg(test)]
 mod tests {
+    use crate::FixedSource;
+    use crate::fixed_source::buffer::SamplesBuffer;
+
+    use super::Resampler;
     use std::time::Duration;
 
     use itertools::Itertools;
-    use rodio::buffer::SamplesBuffer;
     use rodio::source::{Function, SignalGenerator};
     use rodio::{ChannelCount, SampleRate, Source, nz};
     use spectrum_analyzer::{FrequencyLimit, scaling::divide_by_N_sqrt};
 
-    use super::VariableInputResampler;
-
-    pub(crate) fn sine(channels: ChannelCount, sample_rate: SampleRate) -> impl Source + Clone {
+    pub(crate) fn sine(
+        channels: ChannelCount,
+        sample_rate: SampleRate,
+    ) -> impl FixedSource + Clone {
         let sine = SignalGenerator::new(sample_rate, 400.0, Function::Sine)
             .take(sample_rate.get() as usize)
             .map(|s| core::iter::repeat_n(s, channels.get() as usize))
@@ -277,7 +184,7 @@ mod tests {
         pub error: f32,
     }
 
-    fn assert_non_zero_volume_fuzzy(source: impl Source) {
+    fn assert_non_zero_volume_fuzzy(source: impl FixedSource) {
         let sample_rate = source.sample_rate();
         let chunk_size = sample_rate.get() / 1000;
         let ms_volume = source.into_iter().chunks(chunk_size as usize);
@@ -294,7 +201,7 @@ mod tests {
         }
     }
 
-    fn median_peak_pitch(source: impl Source) -> PeakPitch {
+    fn median_peak_pitch(source: impl FixedSource) -> PeakPitch {
         use spectrum_analyzer::{samples_fft_to_spectrum, windows::hann_window};
 
         let channels = source.channels().get();
@@ -337,7 +244,7 @@ mod tests {
     #[test]
     fn constant_samplerate_preserves_length() {
         let test_signal = sine(nz!(3), nz!(48_000));
-        let resampled = VariableInputResampler::new(test_signal.clone(), nz!(16_000));
+        let resampled = Resampler::new(test_signal.clone(), nz!(16_000));
 
         let diff_in_length = test_signal
             .total_duration()
@@ -348,10 +255,7 @@ mod tests {
 
     #[test]
     fn stereo_gets_preserved() {
-        use rodio::{
-            buffer::SamplesBuffer,
-            source::{Function, SignalGenerator},
-        };
+        use rodio::source::{Function, SignalGenerator};
 
         let sample_rate = nz!(48_000);
         let sample_rate_resampled = nz!(16_000);
@@ -365,8 +269,7 @@ mod tests {
 
         let source = channel0.interleave(channel1).collect_vec();
         let source = SamplesBuffer::new(nz!(2), sample_rate, source);
-        let resampled =
-            VariableInputResampler::new(source.clone(), sample_rate_resampled).collect_vec();
+        let resampled = Resampler::new(source.clone(), sample_rate_resampled).collect_vec();
 
         let (channel0_resampled, channel1_resampled): (Vec<_>, Vec<_>) = resampled
             .chunks_exact(2)
@@ -389,7 +292,7 @@ mod tests {
 
     #[test]
     fn resampler_does_not_add_any_latency() {
-        let resampled = VariableInputResampler::new(sine(nz!(1), nz!(48_000)), nz!(16_000));
+        let resampled = Resampler::new(sine(nz!(1), nz!(48_000)), nz!(16_000));
         assert_non_zero_volume_fuzzy(resampled);
     }
 
@@ -400,7 +303,7 @@ mod tests {
         #[test]
         fn one_channel() {
             let test_signal = sine(nz!(1), nz!(48_000));
-            let resampled = VariableInputResampler::new(test_signal.clone(), nz!(16_000));
+            let resampled = Resampler::new(test_signal.clone(), nz!(16_000));
 
             let peak_pitch_before = median_peak_pitch(test_signal);
             let peak_pitch_after = median_peak_pitch(resampled);
@@ -415,7 +318,7 @@ mod tests {
         #[test]
         fn two_channel() {
             let test_signal = sine(nz!(2), nz!(48_000));
-            let resampled = VariableInputResampler::new(test_signal.clone(), nz!(16_000));
+            let resampled = Resampler::new(test_signal.clone(), nz!(16_000));
 
             let peak_pitch_before = median_peak_pitch(test_signal);
             let peak_pitch_after = median_peak_pitch(resampled);
