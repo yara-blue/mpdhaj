@@ -4,7 +4,7 @@ use rodio::Source as DynamicSource;
 
 pub struct VariableInputChannelConvertor<S> {
     input: S,
-    target: ChannelCount,
+    pub(crate) target: ChannelCount,
     sample_repeat: Option<Sample>,
     next_output_sample_pos: u16,
 }

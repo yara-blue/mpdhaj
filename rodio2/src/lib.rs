@@ -13,6 +13,7 @@ pub use rodio::{ChannelCount, SampleRate};
 
 pub mod const_source;
 pub mod fixed_source;
+pub mod dynamic_source_ext;
 pub mod conversions;
 
 pub use const_source::ConstSource;

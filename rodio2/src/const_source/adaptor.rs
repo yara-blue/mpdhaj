@@ -4,7 +4,7 @@ use std::time::Duration;
 use rodio::Source as DynamicSource;
 
 use super::ConstSource;
-use crate::conversions::resampler::VariableInputResampler;
+use crate::conversions::resampler::variable_input::VariableInputResampler;
 
 pub struct DynamicToConstant<const SR: u32, const CH: u16, S: DynamicSource> {
     inner: VariableInputResampler<S>,

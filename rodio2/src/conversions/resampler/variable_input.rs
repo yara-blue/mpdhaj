@@ -2,17 +2,18 @@
 //! overhead as it needs to deal with audio changing samplerate or channel count
 //! *at any point*.
 //!
-//! This resampler may need to inject zero padding that we can not remove later.
+//! This resampler may need to inject zero padding if spans get shorter then 2 *
+//! 2048 frames.
 //!
 //! Please use a `FixedSource` or `ConstSource`. These can be efficiently
 //! resampled.
 
-// The main complication is that we might need to process chunks that are too
+// The main complication is that we need
 // small for the resampler. We need to pad those with zeros. We can not cut
 // those off as the resampler maintains state between segments.
 //
 //
-// Example where we can simply not prevent zero padding:
+// Example where we chunk naively and have to pad with zeros
 // --------------------------------------------------------------------
 // | span A                    | span B                  | span C
 // --------------------------------------------------------------------
@@ -23,7 +24,7 @@
 //  ^                      ^
 //  max chunk size for     min chunk size for resampling
 //  resampling A params    A params, need zero padding to get there.
-//                     
+//
 //
 // Example of adapting chunk size to prevent zero padding
 // --------------------------------------------------------------------
@@ -31,20 +32,19 @@
 // --------------------------------------------------------------------
 // | ********** <- Min A chunk size (same as above)
 //   ****************** <- Max A chunk size (same as above)
-//   
+//
 //
 // Smart chunking:
 // ------------------------------------------------------------------------
-// |     A       |     A       | 
+// |     A       |     A       |
 // ------------------------------------------------------------------------
 //  ************* ~~~~~~~~~~~~~  <- Minimum size
 //  ^
-//  Slightly larger then minimum size                  
+//  Slightly larger then minimum size
 //  so we have enough samples for ending
 //  the span
 
 use core::iter;
-use std::time::Duration;
 
 use audioadapter_buffers::direct::InterleavedSlice;
 use rodio::{ChannelCount, Sample, SampleRate, Source};
@@ -57,32 +57,28 @@ pub struct VariableInputResampler<S> {
     input_buffer: Vec<Sample>,
     target_sample_rate: SampleRate,
     resampler: rubato::Async<Sample>,
-
-    indexing: Indexing,
-    input_frames_left: usize,
-    input_frames_next: usize,
 }
 
+// Parameters based on camilladsp Balanced profile:
+// https://github.com/HEnquist/camilladsp/blob/master/README.md#asyncsinc-asynchronous-resampling-with-anti-aliasing
+// Noise floor at -170dB. (Rather overkill..)
 fn high_quality_parameters() -> SincInterpolationParameters {
-    let window = rubato::WindowFunction::Blackman2;
+    let window = rubato::WindowFunction::BlackmanHarris2;
     let sinc_len = 128;
     let f_cutoff = calculate_cutoff(sinc_len, window);
     // based on example fixedout_ramp64.rs in the rubato repo
     SincInterpolationParameters {
         sinc_len,
         f_cutoff,
-        oversampling_factor: 2048,
-        interpolation: rubato::SincInterpolationType::Cubic, // highest quality
+        oversampling_factor: 512,
+        interpolation: rubato::SincInterpolationType::Quadratic, // highest quality
         window,
     }
 }
 
 impl<S: Source> VariableInputResampler<S> {
     pub fn new(input: S, target_sample_rate: SampleRate) -> Self {
-        let chunk_size_in =
-            Duration::from_millis(10).as_secs_f32() * input.sample_rate().get() as f32;
-        let chunk_size_in = chunk_size_in.ceil() as usize;
-        let chunk_size_in = chunk_size_in.min(2048);
+        let chunk_size_in = 2048;
         let ratio = target_sample_rate.get() as f64 / input.sample_rate().get() as f64;
 
         let resampler = rubato::Async::new_sinc(
@@ -126,6 +122,10 @@ impl<S: Source> VariableInputResampler<S> {
         &mut self.input
     }
 
+    pub fn inner(&self) -> &S {
+        &self.input
+    }
+
     pub fn into_inner(self) -> S {
         self.input
     }
@@ -136,10 +136,11 @@ impl<S: Source> VariableInputResampler<S> {
         let sample_rate = self.input.sample_rate();
         let current_span_len = self.input.current_span_len();
 
+        // when this changes we need to aggressively empty the resampler
         self.resampler
             .set_resample_ratio(
                 self.target_sample_rate.get() as f64 / sample_rate.get() as f64,
-                false,
+                false, // do not ramp it, apply new ratio on next chunk
             )
             .expect("Could not change sample ratio");
         let next_size = self.resampler.input_frames_next() * channels.get() as usize;
@@ -154,12 +155,11 @@ impl<S: Source> VariableInputResampler<S> {
 
         self.input_buffer.clear();
         match current_span_len {
-            // parameters will never change (yay)
-            None => self
+            None => self // parameters will never change (yay)
                 .input_buffer
                 .extend(input.chain(padding).take(next_size)),
             Some(span) => self
-                .input_buffer
+                .input_buffer // padding here is a worste case crutch
                 .extend(input.take(span).chain(padding).take(next_size)),
         }
         if padding_samples > 0 {
@@ -193,11 +193,8 @@ impl<S: Source> VariableInputResampler<S> {
 
         let (input_frames, output_frames) = self
             .resampler
-            .process_into_buffer(&input_adapter, &mut output_adapter, Some(&self.indexing))
+            .process_into_buffer(&input_adapter, &mut output_adapter, None)
             .expect("Buffers passed in are of the correct sized");
-
-        self.indexing.input_offset += input_frames;
-        self.indexing.output_offset += output_frames;
 
         debug_assert_eq!(
             input_frames,
@@ -215,7 +212,8 @@ impl<S: Source> VariableInputResampler<S> {
 
 impl<S: Source> Source for VariableInputResampler<S> {
     fn current_span_len(&self) -> Option<usize> {
-        None
+        // recalculate spans based on resampling ratio....
+        todo!() 
     }
 
     fn channels(&self) -> rodio::ChannelCount {

@@ -3,10 +3,16 @@ use std::time::Duration;
 use rodio::ChannelCount;
 use rodio::Sample;
 use rodio::SampleRate;
-use rodio::Source as DynamicSource; // will be renamed to this upstream
+
+use crate::ConstSource;
 
 pub mod queue;
 pub mod take;
+
+pub struct ParameterMismatch<const SR: u32, const CH: u16> {
+    got_sample_rate: SampleRate,
+    got_channel_count: ChannelCount,
+}
 
 pub trait FixedSource: Iterator<Item = Sample> {
     /// May NEVER return something else once its returned a value
@@ -21,35 +27,38 @@ pub trait FixedSource: Iterator<Item = Sample> {
     {
         take::TakeDuration::new(self, duration)
     }
+
+    fn try_into_const_source<const SR: u32, const CH: u16>(
+        self,
+    ) -> Result<IntoConstSource<SR, CH, Self>, ParameterMismatch<SR, CH>>
+    where
+        Self: Sized,
+    {
+        if self.channels().get() != CH || self.sample_rate().get() != SR {
+            Err(ParameterMismatch {
+                got_sample_rate: self.sample_rate(),
+                got_channel_count: self.channels(),
+            })
+        } else {
+            Ok(IntoConstSource(self))
+        }
+    }
 }
 
-// we need this only because of the silly orphan rule, will go away once upstreamed
-struct FixedSourceAdaptor<S: FixedSource> {
-    inner: S,
+pub struct IntoConstSource<const SR: u32, const CH: u16, S: FixedSource>(S);
+
+impl<const SR: u32, const CH: u16, S: FixedSource> ConstSource<SR, CH>
+    for IntoConstSource<SR, CH, S>
+{
+    fn total_duration(&self) -> Option<Duration> {
+        self.0.total_duration()
+    }
 }
 
-impl<S: FixedSource> Iterator for FixedSourceAdaptor<S> {
+impl<const SR: u32, const CH: u16, S: FixedSource> Iterator for IntoConstSource<SR, CH, S> {
     type Item = Sample;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next()
-    }
-}
-
-impl<S: FixedSource> DynamicSource for FixedSourceAdaptor<S> {
-    fn current_span_len(&self) -> Option<usize> {
-        None
-    }
-
-    fn channels(&self) -> ChannelCount {
-        self.inner.channels()
-    }
-
-    fn sample_rate(&self) -> SampleRate {
-        self.inner.sample_rate()
-    }
-
-    fn total_duration(&self) -> Option<std::time::Duration> {
-        self.inner.total_duration()
+        self.0.next()
     }
 }
