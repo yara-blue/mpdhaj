@@ -38,7 +38,7 @@ impl<const SR: u32, const CH: u16, S1: ConstSource<SR, CH>, S2: ConstSource<SR, 
     fn next(&mut self) -> Option<Self::Item> {
         let (sum, counted) = [self.0.0.next(), self.0.1.next()]
             .into_iter()
-            .filter_map(|s| s)
+            .flatten()
             .map(|s| (s, 1))
             .reduce(|(sum, summed), (sample, _)| (sum + sample, summed + 1))?;
         Some(sum / counted as f32)

@@ -76,6 +76,8 @@ fn high_quality_parameters() -> SincInterpolationParameters {
     }
 }
 
+// TODO this whole thing is not done yet. Silly spans make it a bit complex
+// Need a bit more info: https://github.com/HEnquist/rubato/issues/116
 impl<S: Source> VariableInputResampler<S> {
     pub fn new(input: S, target_sample_rate: SampleRate) -> Self {
         let chunk_size_in = 2048;
@@ -146,9 +148,7 @@ impl<S: Source> VariableInputResampler<S> {
         let next_size = self.resampler.input_frames_next() * channels.get() as usize;
 
         let mut input = self.input.by_ref().peekable();
-        if input.peek().is_none() {
-            return None;
-        }
+        input.peek()?;
 
         let mut padding_samples = 0;
         let padding = iter::repeat(0.0).inspect(|_| padding_samples += 1);
@@ -170,7 +170,7 @@ impl<S: Source> VariableInputResampler<S> {
 
     #[cold]
     fn resample_buffer(&mut self) -> Option<()> {
-        let (channels, padding) = self.collect_span()?;
+        let (channels, _padding) = self.collect_span()?;
 
         let input_adapter = InterleavedSlice::new(
             &self.input_buffer,
@@ -213,7 +213,7 @@ impl<S: Source> VariableInputResampler<S> {
 impl<S: Source> Source for VariableInputResampler<S> {
     fn current_span_len(&self) -> Option<usize> {
         // recalculate spans based on resampling ratio....
-        todo!() 
+        todo!()
     }
 
     fn channels(&self) -> rodio::ChannelCount {

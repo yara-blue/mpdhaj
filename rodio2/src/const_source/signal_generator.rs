@@ -101,8 +101,8 @@ macro_rules! signal_new_type {
         impl<const SR: u32> $name<SR> {
             /// The frequency of the sine.
             #[inline]
-            pub fn new(freq: f32) -> SineWave<SR> {
-                SineWave {
+            pub fn new(freq: f32) -> Self {
+                Self {
                     inner: SignalGenerator::new(freq, $function),
                 }
             }

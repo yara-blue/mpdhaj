@@ -1,5 +1,3 @@
-use core::iter;
-
 use audioadapter_buffers::direct::InterleavedSlice;
 use rodio::{Sample, SampleRate};
 use rubato::Resampler as _;
