@@ -5,9 +5,9 @@ edition = "2024"
 
 [dependencies]
 rodio = { git = "https://www.github.com/RustAudio/rodio",  branch = "output-builder", features = ["experimental", "playback"] }
-rubato = "1.0.0-preview.1"
-audioadapter = "1.0"
-audioadapter-buffers = "1.0"
+rubato = "1.0.0"
+audioadapter = "2.0"
+audioadapter-buffers = "2.0"
 itertools = "0.14.0"
 thiserror = "2.0.17"
 

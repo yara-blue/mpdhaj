@@ -39,7 +39,7 @@ impl<S: Source> VariableInputResampler<S> {
         let resampler = rubato::Async::new_sinc(
             ratio,
             10.0,
-            high_quality_parameters(),
+            &high_quality_parameters(),
             chunk_size_in,
             input.channels().get() as usize,
             rubato::FixedAsync::Output,
@@ -65,6 +65,11 @@ impl<S: Source> VariableInputResampler<S> {
             input,
         };
         this.resample_buffer();
+
+        let output_delay = this.resampler.output_delay();
+        let output_delay = output_delay * this.inner_mut().channels().get() as usize;
+        dbg!(&output_delay);
+        let _ = this.by_ref().take(output_delay).count();
         this
     }
 
@@ -77,7 +82,7 @@ impl<S: Source> VariableInputResampler<S> {
     }
 
     /// collect samples until rate changes or maximum
-    fn collect_span(&mut self) -> Option<(ChannelCount, SampleRate)> {
+    fn collect_span(&mut self) -> Option<(ChannelCount, SampleRate, usize)> {
         let channels = self.input.channels();
         let sample_rate = self.input.sample_rate();
         let current_span_len = self.input.current_span_len();
@@ -89,22 +94,28 @@ impl<S: Source> VariableInputResampler<S> {
             return None;
         }
 
+        let mut padding_samples = 0;
+        let padding = iter::repeat(0.0).inspect(|_| padding_samples += 1);
+
         self.input_buffer.clear();
         match current_span_len {
             // parameters will never change (yay)
             None => self
                 .input_buffer
-                .extend(input.chain(iter::repeat(0.0)).take(next_size)),
+                .extend(input.chain(padding).take(next_size)),
             Some(span) => self
                 .input_buffer
-                .extend(input.take(span).chain(iter::repeat(0.0)).take(next_size)),
+                .extend(input.take(span).chain(padding).take(next_size)),
         }
-        Some((channels, sample_rate))
+        if padding_samples > 0 {
+            dbg!(padding_samples);
+        }
+        Some((channels, sample_rate, padding_samples))
     }
 
     #[cold]
     fn resample_buffer(&mut self) -> Option<()> {
-        let (channels, sample_rate) = self.collect_span()?;
+        let (channels, sample_rate, padding) = self.collect_span()?;
 
         self.resampler
             .set_resample_ratio(

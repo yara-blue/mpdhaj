@@ -1634,6 +1634,7 @@ dependencies = [
  "itertools",
  "rodio",
  "rubato",
+ "thiserror 2.0.17",
 ]
 
 [[package]]
