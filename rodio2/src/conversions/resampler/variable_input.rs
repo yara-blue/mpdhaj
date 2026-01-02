@@ -1,11 +1,54 @@
+//! This resampler supports a `DynamicSource` as input. That comes with a lot of
+//! overhead as it needs to deal with audio changing samplerate or channel count
+//! *at any point*.
+//!
+//! This resampler may need to inject zero padding that we can not remove later.
+//!
+//! Please use a `FixedSource` or `ConstSource`. These can be efficiently
+//! resampled.
+
+// The main complication is that we might need to process chunks that are too
+// small for the resampler. We need to pad those with zeros. We can not cut
+// those off as the resampler maintains state between segments.
+//
+//
+// Example where we can simply not prevent zero padding:
+// --------------------------------------------------------------------
+// | span A                    | span B                  | span C
+// --------------------------------------------------------------------
+// |     A chunk       | chunk | <- this chunk is too small
+// --------------------------------------------------------------------
+// | A                 | A     000| B               |                 |
+//  ******************* ~~~~~~~~~~ ***************** *****************
+//  ^                      ^
+//  max chunk size for     min chunk size for resampling
+//  resampling A params    A params, need zero padding to get there.
+//                     
+//
+// Example of adapting chunk size to prevent zero padding
+// --------------------------------------------------------------------
+// | span A                    | span B                  | span C
+// --------------------------------------------------------------------
+// | ********** <- Min A chunk size (same as above)
+//   ****************** <- Max A chunk size (same as above)
+//   
+//
+// Smart chunking:
+// ------------------------------------------------------------------------
+// |     A       |     A       | 
+// ------------------------------------------------------------------------
+//  ************* ~~~~~~~~~~~~~  <- Minimum size
+//  ^
+//  Slightly larger then minimum size                  
+//  so we have enough samples for ending
+//  the span
+
 use core::iter;
 use std::time::Duration;
 
 use audioadapter_buffers::direct::InterleavedSlice;
 use rodio::{ChannelCount, Sample, SampleRate, Source};
 use rubato::{Indexing, Resampler, SincInterpolationParameters, calculate_cutoff};
-
-mod variable_input;
 
 pub struct VariableInputResampler<S> {
     input: S,
@@ -148,19 +191,6 @@ impl<S: Source> VariableInputResampler<S> {
         )
         .expect("we pre allocate enough space");
 
-        // --------------------------------------------------------------------
-        // | span A                    | span B                  | span C
-        // --------------------------------------------------------------------
-        // |     A chunk       | chunk | <- this chunk is too small
-        // --------------------------------------------------------------------
-        // | A chunk           | A chunk    pad |                    a
-        //
-
-        // The resampler may not process the entire input after one call. 
-        // It may need more data before it can be called again. We however may
-        // not be a ble to offer more data because:
-        // - its the end of the audio source (solution pad zeros)
-        // - the sample rate or channel count is about to change
         let (input_frames, output_frames) = self
             .resampler
             .process_into_buffer(&input_adapter, &mut output_adapter, Some(&self.indexing))
