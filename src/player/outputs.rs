@@ -4,7 +4,8 @@ use color_eyre::{Result, eyre::Context};
 use gag::Gag;
 use itertools::Itertools;
 use rodio::{
-    nz, speakers::{self, Output, OutputConfig}, DynamicSource
+    DynamicSource, nz,
+    speakers::{self, Output, OutputConfig},
 };
 
 use rodio::const_source::{CollectConstSource, ConstSource, SineWave};
@@ -30,11 +31,10 @@ pub fn print_all() -> Result<()> {
     Ok(())
 }
 
-fn major_a_chord() -> impl DynamicSource {
+fn major_a_chord() -> impl ConstSource<44100, 1> {
     [220.5, 138.5, 164.5]
         .map(|freq| SineWave::<44100>::new(freq))
         .collect_mixed()
-        .adaptor_to_dynamic()
 }
 
 /// Go through all outputs beeping as you go
@@ -45,12 +45,13 @@ pub fn beep() -> Result<()> {
         let mut stream = speakers::SpeakersBuilder::new()
             .device(output.clone())?
             .config(config)?
-            .open_stream()?;
-        stream.log_on_drop(false);
-        let mixer = stream.mixer();
+            .play(
+                major_a_chord()
+                    .take_duration(Duration::from_secs(4))
+                    .into_fixed_source(),
+            )?;
 
         println!("Playing beep on: {}", output);
-        mixer.add(major_a_chord().take_duration(Duration::from_secs(4)));
         thread::sleep(Duration::from_secs(4));
     }
     Ok(())

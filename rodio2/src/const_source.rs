@@ -2,13 +2,13 @@ use std::num::NonZeroU16;
 use std::num::NonZeroU32;
 use std::time::Duration;
 
-use rodio::FixedSource;
 use rodio::ChannelCount;
+use rodio::FixedSource;
 use rodio::Sample;
 use rodio::SampleRate;
 use rodio::Source as DynamicSource; // will be renamed to this upstream
 
-pub mod adaptor;
+// pub mod adaptor; replaced with into_fixed_source and into_const_source
 pub mod conversions;
 pub mod list;
 pub mod mixer;
@@ -27,10 +27,23 @@ use crate::const_source::take::TakeDuration;
 use crate::const_source::take::TakeSamples;
 
 pub trait ConstSource<const SR: u32, const CH: u16>: Iterator<Item = Sample> {
+    fn sample_rate(&self) -> SampleRate {
+        const { NonZeroU32::new(SR).expect("SampleRate must be > 0") }
+    }
+    fn channels(&self) -> ChannelCount {
+        const { NonZeroU16::new(CH).expect("Channel count must be > 0") }
+    }
+
     /// This value is free to change at any time
     fn total_duration(&self) -> Option<Duration>;
 
-    fn adaptor_to_dynamic(self) -> ConstSourceAdaptor<SR, CH, Self>
+    fn into_dynamic_source(self) -> ConstSourceAdaptor<SR, CH, Self>
+    where
+        Self: Sized,
+    {
+        ConstSourceAdaptor { inner: self }
+    }
+    fn into_fixed_source(self) -> ConstSourceAdaptor<SR, CH, Self>
     where
         Self: Sized,
     {

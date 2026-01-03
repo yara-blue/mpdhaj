@@ -13,17 +13,26 @@ use std::{
 };
 
 use camino::Utf8Path;
-use rodio::{const_source, dynamic_source, mixer, speakers, Decoder, DynamicSource, OutputStream};
+use rodio::{
+    Decoder, DynamicSource, FixedSource, const_source, dynamic_source,
+    dynamic_source_ext::{ExtendDynamicSource, IntoFixedSource},
+    fixed_source::{
+        self,
+        amplify::{Amplify, Factor},
+        pausable::Pausable,
+        periodic_access::{PeriodicAccess, WithData},
+    },
+    mixer, nz, speakers,
+};
 
 use rodio::{
     self, ConstSource,
-    const_source::{
-        adaptor,
-        queue::uniform::{UniformQueue, UniformQueueHandle},
-    },
+    fixed_source::FixedSourceExt,
+    fixed_source::queue::uniform::{UniformQueue, UniformQueueHandle},
 };
 
 pub mod outputs;
+const AUDIO_THREAD_RESPONSE_LATENCY: Duration = Duration::from_millis(50);
 
 struct PlayerParams {
     // range: 0..=1.0, weight such that 10%
@@ -45,22 +54,8 @@ impl PlayerParams {
     }
 }
 
-type MpdSourceInner = const_source::periodic_access::WithData<
-    44100,
-    2,
-    adaptor::DynamicToConstant<
-        44100,
-        2,
-        dynamic_source::Amplify<
-            dynamic_source::Pausable<dynamic_source::Stoppable<Decoder<BufReader<File>>>>,
-        >,
-    >,
-    (Arc<PlayerParams>, AbortHandle),
->;
-type MpdSource = const_source::periodic_access::PeriodicAccess<44100, 2, MpdSourceInner>;
-
 pub struct Player {
-    queue: UniformQueueHandle<44100, 2, MpdSource>,
+    queue: UniformQueueHandle<MpdTrack>,
     params: Arc<PlayerParams>,
     /// Signal the output stream holder thread to stop on drop
     audio_output_abort_handle: mpsc::Sender<()>,
@@ -88,11 +83,18 @@ impl Drop for AbortHandle {
 
 impl Player {
     pub fn new(volume: f32, paused: bool) -> Self {
-        let config = speakers::SpeakersBuilder::new()
+        let params = Arc::new(PlayerParams {
+            volume: AtomicF32::new(volume),
+            paused: AtomicBool::new(paused),
+        });
+
+        let builder = speakers::SpeakersBuilder::new()
             .default_device()
             .unwrap()
             .default_config()
-            .unwrap();
+            .unwrap()
+            .prefer_channel_counts([nz!(2)])
+            .prefer_sample_rates([nz!(44100)]);
 
         // The rodio Outputstream gets closed when its dropped. Therefore we
         // need to hold it. We want Player to be send but the Outputstream is
@@ -100,14 +102,40 @@ impl Player {
         // drops.
         let (tx, rx) = mpsc::channel();
         let (audio_output_abort_handle, abort_rx) = mpsc::channel();
+        let params_clone = Arc::clone(&params);
         thread::Builder::new()
             .name("audio-output-stream-holder".to_string())
             .spawn(move || {
-                let stream = config.open_stream().unwrap();
-                let mixer = stream.mixer().clone();
-                let (queue, handle) = UniformQueue::<44100, 2, MpdSource>::new();
-                // TODO make the stream mixer accept ConstSource
-                mixer.add(queue.adaptor_to_dynamic());
+                let sink = builder.get_config();
+                let (queue, handle) = UniformQueue::<MpdTrack>::new(nz!(2), nz!(44100));
+                let queue = queue
+                    .pausable(params_clone.paused())
+                    .amplify(Factor::input_volume())
+                    .with_data(params_clone)
+                    .periodic_access(AUDIO_THREAD_RESPONSE_LATENCY, update_params);
+                let needs_resample = sink.sample_rate != queue.sample_rate();
+                let needs_rechannel = sink.channel_count != queue.channels();
+
+                // TODO move all this into builder::play and friends
+                let _sink = match (needs_resample, needs_rechannel) {
+                    (true, true) => builder
+                        .play(
+                            queue
+                                .with_channel_count(sink.channel_count)
+                                .with_sample_rate(sink.sample_rate),
+                        )
+                        .unwrap(),
+                    (true, false) => builder
+                        .play(queue.with_sample_rate(sink.sample_rate))
+                        .unwrap(),
+
+                    (false, true) => builder
+                        .play(queue.with_channel_count(sink.channel_count))
+                        .unwrap(),
+
+                    (false, false) => builder.play(queue).unwrap(),
+                };
+
                 tx.send(handle);
 
                 let _ = abort_rx.recv();
@@ -120,17 +148,12 @@ impl Player {
         Self {
             queue,
             audio_output_abort_handle,
-            params: Arc::new(PlayerParams {
-                volume: AtomicF32::new(volume),
-                paused: AtomicBool::new(paused),
-            }),
+            params,
             last_song_abort_handle: None,
         }
     }
 
     pub async fn add(&mut self, path: &Utf8Path) -> Result<()> {
-        const AUDIO_THREAD_RESPONSE_LATENCY: Duration = Duration::from_millis(50);
-
         let file = BufReader::new(File::open(path)?);
         let params = Arc::clone(&self.params);
         let abort_handle = AbortHandle::new();
@@ -140,18 +163,14 @@ impl Player {
         self.last_song_abort_handle = Some(abort_handle.clone());
 
         let source = Decoder::try_from(file)?
-            // TODO move to const source
+            .into_fixed_source(nz!(44100), nz!(2))
             .stoppable()
-            .pausable(params.paused())
-            // TODO move to queue (needs to be implemented on ConstSource first
-            .amplify(1.0);
-        let const_source = adaptor::DynamicToConstant::<44100, 2, _>::new(source)
-            .with_data((params, abort_handle))
-            .periodic_access(AUDIO_THREAD_RESPONSE_LATENCY, update_params);
+            .with_data(abort_handle)
+            .periodic_access(AUDIO_THREAD_RESPONSE_LATENCY, stop_on_abort);
 
         // ensure the previous song has been stopped before the new one starts
         tokio::time::sleep(AUDIO_THREAD_RESPONSE_LATENCY).await;
-        self.queue.add(const_source);
+        self.queue.add(source);
         Ok(())
     }
 
@@ -166,17 +185,27 @@ impl Player {
     }
 }
 
-fn update_params(source: &mut MpdSourceInner) {
-    let (params, abort_handle) = &source.data;
+use rodio::fixed_source::stoppable::Stoppable;
 
-    let amplify = source.inner.inner_mut();
-    amplify.set_factor(params.volume());
+type DecodeFile = Decoder<BufReader<File>>;
+type MpdTrackInner = WithData<Stoppable<IntoFixedSource<DecodeFile>>, AbortHandle>;
+type MpdTrack = PeriodicAccess<MpdTrackInner>;
+type MpdQueueInner = WithData<Amplify<Pausable<UniformQueue<MpdTrack>>>, Arc<PlayerParams>>;
+type MpdQueue = PeriodicAccess<MpdQueueInner>;
 
-    let pausable = amplify.inner_mut();
-    pausable.set_paused(params.paused());
-
-    let stoppable = pausable.inner_mut();
+fn stop_on_abort(source: &mut MpdTrackInner) {
+    let abort_handle = &source.data;
     if abort_handle.should_abort() {
+        let stoppable = source.inner_mut();
         stoppable.stop();
     }
+}
+
+fn update_params(source: &mut MpdQueueInner) {
+    let params = &source.data;
+
+    let mut amplify = &mut source.inner;
+    amplify.set_factor(Factor::Normalized(params.volume()));
+    let pausable = amplify.inner_mut();
+    pausable.set_paused(params.paused());
 }

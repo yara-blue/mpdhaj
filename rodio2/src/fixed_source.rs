@@ -1,18 +1,27 @@
 use std::time::Duration;
 
-use rodio::FixedSource;
 use rodio::ChannelCount;
+use rodio::FixedSource;
 use rodio::Sample;
 use rodio::SampleRate;
 
-use crate::conversions::resampler::fixed_input::Resampler;
 use crate::conversions::channelcount::fixed_input::ChannelConverter;
+use crate::conversions::resampler::fixed_input::Resampler;
 
+use crate::fixed_source::amplify::Amplify;
 use crate::ConstSource;
+use crate::fixed_source::pausable::Pausable;
+use crate::fixed_source::periodic_access::PeriodicAccess;
+use crate::fixed_source::periodic_access::WithData;
+use crate::fixed_source::stoppable::Stoppable;
 
-pub mod queue;
-pub mod take;
+pub mod amplify;
 pub mod buffer;
+pub mod pausable;
+pub mod periodic_access;
+pub mod queue;
+pub mod stoppable;
+pub mod take;
 
 pub trait FixedSourceExt: FixedSource {
     fn take_duration(self, duration: Duration) -> take::TakeDuration<Self>
@@ -22,17 +31,35 @@ pub trait FixedSourceExt: FixedSource {
         take::TakeDuration::new(self, duration)
     }
 
+    fn periodic_access(self, call_every: Duration, arg: fn(&mut Self)) -> PeriodicAccess<Self>
+    where
+        Self: Sized,
+    {
+        periodic_access::PeriodicAccess::new(self, call_every, arg)
+    }
+
+    fn with_data<D>(self, data: D) -> WithData<Self, D>
+    where
+        Self: Sized,
+    {
+        periodic_access::WithData { inner: self, data }
+    }
+
     fn with_sample_rate(self, sample_rate: SampleRate) -> Resampler<Self>
-        where Self: Sized {
-            Resampler::new(self, sample_rate)
+    where
+        Self: Sized,
+    {
+        Resampler::new(self, sample_rate)
     }
 
     fn with_channel_count(self, channel_count: ChannelCount) -> ChannelConverter<Self>
-        where Self: Sized {
-            ChannelConverter::new(self, channel_count)
+    where
+        Self: Sized,
+    {
+        ChannelConverter::new(self, channel_count)
     }
 
-    /// Tries to convert from a fixed source to a const one assuming 
+    /// Tries to convert from a fixed source to a const one assuming
     /// the parameters already match. If they do not this returns an error.
     ///
     /// If the parameters do not match you can resample using: ``
@@ -51,7 +78,39 @@ pub trait FixedSourceExt: FixedSource {
             Ok(IntoConstSource(self))
         }
     }
+
+    fn stoppable(self) -> Stoppable<Self>
+    where
+        Self: Sized,
+    {
+        Stoppable {
+            inner: self,
+            stop: false,
+        }
+    }
+
+    fn pausable(self, paused: bool) -> Pausable<Self>
+    where
+        Self: Sized,
+    {
+        Pausable {
+            inner: self,
+            paused,
+        }
+    }
+
+    fn amplify(self, amplify: amplify::Factor) -> Amplify<Self>
+    where
+        Self: Sized,
+    {
+        Amplify {
+            inner: self,
+            factor: amplify.as_linear(),
+        }
+    }
 }
+
+impl<S: FixedSource> FixedSourceExt for S {}
 
 pub struct IntoConstSource<const SR: u32, const CH: u16, S: FixedSource>(S);
 

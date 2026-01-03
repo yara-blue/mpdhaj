@@ -1,8 +1,20 @@
 use std::time::Duration;
 
-use rodio::{Sample, FixedSource};
+use rodio::{FixedSource, Sample};
 
 pub struct TakeDuration<S: FixedSource>(TakeSamples<S>);
+
+impl<S: FixedSource> TakeDuration<S> {
+    pub fn inner(&self) -> &S {
+        &self.0.inner
+    }
+    pub fn inner_mut(&mut self) -> &mut S {
+        &mut self.0.inner
+    }
+    pub fn into_inner(self) -> S {
+        self.0.inner
+    }
+}
 
 impl<S: FixedSource> TakeDuration<S> {
     pub(crate) fn new(source: S, duration: Duration) -> Self {
@@ -41,6 +53,8 @@ pub struct TakeSamples<S: FixedSource> {
     pub(crate) inner: S,
     pub(crate) left: u64,
 }
+
+crate::add_inner_methods!(TakeSamples<S>);
 
 impl<S: FixedSource> FixedSource for TakeSamples<S> {
     fn total_duration(&self) -> Option<std::time::Duration> {
