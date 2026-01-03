@@ -2,6 +2,7 @@ use std::num::NonZeroU16;
 use std::num::NonZeroU32;
 use std::time::Duration;
 
+use rodio::FixedSource;
 use rodio::ChannelCount;
 use rodio::Sample;
 use rodio::SampleRate;
@@ -20,7 +21,6 @@ pub use signal_generator::{SawtoothWave, SineWave, SquareWave, TriangleWave};
 
 use periodic_access::PeriodicAccess;
 
-use crate::FixedSource;
 use crate::const_source::conversions::channelcount::ChannelConvertor;
 use crate::const_source::periodic_access::WithData;
 use crate::const_source::take::TakeDuration;

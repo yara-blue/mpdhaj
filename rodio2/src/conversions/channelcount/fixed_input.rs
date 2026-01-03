@@ -1,6 +1,5 @@
+use rodio::FixedSource;
 use rodio::{ChannelCount, Sample};
-
-use crate::FixedSource;
 
 pub struct ChannelConverter<S> {
     input: S,

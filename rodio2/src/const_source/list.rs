@@ -4,6 +4,7 @@ use itertools::Itertools;
 
 use crate::ConstSource;
 
+// TODO this should work like the mixers
 pub struct UniformArrayList<const SR: u32, const CH: u16, const N: usize, S>
 where
     S: ConstSource<SR, CH>,

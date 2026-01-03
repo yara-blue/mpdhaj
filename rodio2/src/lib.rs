@@ -8,7 +8,7 @@
 // use rodio::{ChannelCount, Sample, SampleRate, Source, source::SineWave};
 pub use rodio::Source as DynamicSource;
 pub use rodio::source as dynamic_source;
-pub use rodio::{Decoder, OutputStream, mixer, speakers, nz};
+pub use rodio::{Decoder, MixerOsSink, mixer, nz};
 pub use rodio::{ChannelCount, SampleRate};
 
 pub mod const_source;
@@ -17,4 +17,4 @@ pub mod dynamic_source_ext;
 pub mod conversions;
 
 pub use const_source::ConstSource;
-pub use fixed_source::FixedSource;
+pub use rodio::FixedSource;

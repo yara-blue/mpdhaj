@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use rodio::{ChannelCount, Sample, SampleRate};
 
-use crate::FixedSource;
+use rodio::FixedSource;
 
 /// A buffer of samples treated as a source.
 #[derive(Debug, Clone)]

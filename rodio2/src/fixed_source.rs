@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use rodio::FixedSource;
 use rodio::ChannelCount;
 use rodio::Sample;
 use rodio::SampleRate;
@@ -13,13 +14,7 @@ pub mod queue;
 pub mod take;
 pub mod buffer;
 
-pub trait FixedSource: Iterator<Item = Sample> {
-    /// May NEVER return something else once its returned a value
-    fn channels(&self) -> ChannelCount;
-    /// May NEVER return something else once its returned a value
-    fn sample_rate(&self) -> SampleRate;
-    fn total_duration(&self) -> Option<Duration>;
-
+pub trait FixedSourceExt: FixedSource {
     fn take_duration(self, duration: Duration) -> take::TakeDuration<Self>
     where
         Self: Sized,

@@ -1,9 +1,9 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, mpsc};
 
+use rodio::FixedSource;
 use rodio::{ChannelCount, SampleRate};
 
-use crate::FixedSource;
 
 pub mod uniform;
 

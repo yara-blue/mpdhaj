@@ -1,8 +1,6 @@
 use std::time::Duration;
 
-use rodio::Sample;
-
-use crate::FixedSource;
+use rodio::{Sample, FixedSource};
 
 pub struct TakeDuration<S: FixedSource>(TakeSamples<S>);
 

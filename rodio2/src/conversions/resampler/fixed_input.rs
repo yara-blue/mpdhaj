@@ -2,7 +2,7 @@ use audioadapter_buffers::direct::InterleavedSlice;
 use rodio::{Sample, SampleRate};
 use rubato::Resampler as _;
 
-use crate::FixedSource;
+use rodio::FixedSource;
 
 pub struct Resampler<S> {
     input: S,
