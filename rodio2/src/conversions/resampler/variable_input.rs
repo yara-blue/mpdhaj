@@ -28,7 +28,12 @@
 //  resampling A params    A params, need zero padding to get there.
 //
 
+// Debuggy notes
+// - its not channel order being messed up
+// - its not the resampler ratio changing
+
 use std::iter;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use audioadapter_buffers::direct::InterleavedSlice;
 use rodio::{ChannelCount, Sample, SampleRate, Source};
@@ -73,7 +78,7 @@ impl<S: Source> VariableInputResampler<S> {
             &high_quality_parameters(),
             chunk_size_in,
             input.channels().get() as usize,
-            rubato::FixedAsync::Output,
+            rubato::FixedAsync::Input,
         )
         .expect(
             "sample rates are non zero, and we are not changing it so there is no resample ratio",
@@ -99,7 +104,6 @@ impl<S: Source> VariableInputResampler<S> {
 
         let output_delay = this.resampler.output_delay();
         let output_delay = output_delay * this.inner_mut().channels().get() as usize;
-        dbg!(&output_delay);
         let _ = this.by_ref().take(output_delay).count();
         this
     }
@@ -128,9 +132,15 @@ impl<S: Source> VariableInputResampler<S> {
         // TODO do we need a new resampler or is changing the ratio enough?
         // We always keep the resampler "empty".
         let ratio = self.resample_ratio();
-        self.resampler
-            .set_resample_ratio(ratio, false)
-            .expect("Could not change sample ratio");
+
+        // TODO experiment remove
+        static FIRST: AtomicBool = AtomicBool::new(true);
+        if FIRST.load(Ordering::Relaxed) {
+            FIRST.store(false, Ordering::Relaxed);
+            self.resampler
+                .set_resample_ratio(ratio, false)
+                .expect("Could not change sample ratio");
+        }
         let next_size = self.resampler.input_frames_next() * channels.get() as usize;
 
         let mut padding_samples = 0;
@@ -188,7 +198,7 @@ impl<S: Source> VariableInputResampler<S> {
         let output_len = if padding > 0 {
             (padding as f64 * self.resampler.resample_ratio()) as usize
         } else {
-            output_frames / channels.get() as usize
+            output_frames * channels.get() as usize
         };
         self.output_buffer.truncate(output_len);
 
