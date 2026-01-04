@@ -8,43 +8,27 @@
 //! Please use a `FixedSource` or `ConstSource`. These can be efficiently
 //! resampled.
 
-// The main complication is that we need
-// small for the resampler. We need to pad those with zeros. We can not cut
-// those off as the resampler maintains state between segments.
+// The main complication is that we need fixed sized chunks for the resampler.
+// We may need to pad zeros to get to that fixed size. We strip those from the
+// output. Still this may give glitches.
 //
+// For details see:
+// https://github.com/HEnquist/rubato/issues/116#issuecomment-3707189593
 //
-// Example where we chunk naively and have to pad with zeros
+// Example
 // --------------------------------------------------------------------
 // | span A                    | span B                  | span C
 // --------------------------------------------------------------------
 // |     A chunk       | chunk | <- this chunk is too small
 // --------------------------------------------------------------------
-// | A                 | A     000| B               |                 |
-//  ******************* ~~~~~~~~~~ ***************** *****************
+// | A                 | A     0000000000| B               |                 |
+//  ******************* ~~~~~~~~~~~~~~~~~ ***************** *****************
 //  ^                      ^
-//  max chunk size for     min chunk size for resampling
+//  fixed chunk size for   fixed chunk size for resampling
 //  resampling A params    A params, need zero padding to get there.
 //
-//
-// Example of adapting chunk size to prevent zero padding
-// --------------------------------------------------------------------
-// | span A                    | span B                  | span C
-// --------------------------------------------------------------------
-// | ********** <- Min A chunk size (same as above)
-//   ****************** <- Max A chunk size (same as above)
-//
-//
-// Smart chunking:
-// ------------------------------------------------------------------------
-// |     A       |     A       |
-// ------------------------------------------------------------------------
-//  ************* ~~~~~~~~~~~~~  <- Minimum size
-//  ^
-//  Slightly larger then minimum size
-//  so we have enough samples for ending
-//  the span
 
-use core::iter;
+use std::iter;
 
 use audioadapter_buffers::direct::InterleavedSlice;
 use rodio::{ChannelCount, Sample, SampleRate, Source};
@@ -132,26 +116,28 @@ impl<S: Source> VariableInputResampler<S> {
         self.input
     }
 
+    fn resample_ratio(&self) -> f64 {
+        self.target_sample_rate.get() as f64 / self.input.sample_rate().get() as f64
+    }
+
     /// collect samples until rate changes or maximum
     fn collect_span(&mut self) -> Option<(ChannelCount, usize)> {
         let channels = self.input.channels();
-        let sample_rate = self.input.sample_rate();
         let current_span_len = self.input.current_span_len();
 
-        // when this changes we need to aggressively empty the resampler
+        // TODO do we need a new resampler or is changing the ratio enough?
+        // We always keep the resampler "empty".
+        let ratio = self.resample_ratio();
         self.resampler
-            .set_resample_ratio(
-                self.target_sample_rate.get() as f64 / sample_rate.get() as f64,
-                false, // do not ramp it, apply new ratio on next chunk
-            )
+            .set_resample_ratio(ratio, false)
             .expect("Could not change sample ratio");
         let next_size = self.resampler.input_frames_next() * channels.get() as usize;
 
-        let mut input = self.input.by_ref().peekable();
-        input.peek()?;
-
         let mut padding_samples = 0;
         let padding = iter::repeat(0.0).inspect(|_| padding_samples += 1);
+
+        let mut input = self.input.by_ref().peekable();
+        input.peek()?;
 
         self.input_buffer.clear();
         match current_span_len {
@@ -162,15 +148,13 @@ impl<S: Source> VariableInputResampler<S> {
                 .input_buffer // padding here is a worste case crutch
                 .extend(input.take(span).chain(padding).take(next_size)),
         }
-        if padding_samples > 0 {
-            dbg!(padding_samples);
-        }
+
         Some((channels, padding_samples))
     }
 
     #[cold]
     fn resample_buffer(&mut self) -> Option<()> {
-        let (channels, _padding) = self.collect_span()?;
+        let (channels, padding) = self.collect_span()?;
 
         let input_adapter = InterleavedSlice::new(
             &self.input_buffer,
@@ -180,7 +164,6 @@ impl<S: Source> VariableInputResampler<S> {
         .expect("we pre allocate enough space");
 
         self.output_buffer.resize(
-            // todo should not need to do this init max alloc
             self.resampler.output_frames_next() * channels.get() as usize,
             0.0,
         );
@@ -202,8 +185,12 @@ impl<S: Source> VariableInputResampler<S> {
             "We should provide exactly the samples needed by the resampler"
         );
 
-        self.output_buffer
-            .truncate(output_frames / channels.get() as usize);
+        let output_len = if padding > 0 {
+            (padding as f64 * self.resampler.resample_ratio()) as usize
+        } else {
+            output_frames / channels.get() as usize
+        };
+        self.output_buffer.truncate(output_len);
 
         self.next_sample = 0;
         Some(())
@@ -212,8 +199,10 @@ impl<S: Source> VariableInputResampler<S> {
 
 impl<S: Source> Source for VariableInputResampler<S> {
     fn current_span_len(&self) -> Option<usize> {
-        // recalculate spans based on resampling ratio....
-        todo!()
+        self.input
+            .current_span_len()
+            .map(|span| self.resample_ratio() * span as f64)
+            .map(|new_span| new_span as usize)
     }
 
     fn channels(&self) -> rodio::ChannelCount {

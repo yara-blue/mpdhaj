@@ -32,7 +32,7 @@ impl<S: FixedSource> Iterator for Stoppable<S> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.stop {
-            return None;
+            None
         } else {
             self.inner.next()
         }
