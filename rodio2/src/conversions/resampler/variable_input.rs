@@ -195,11 +195,10 @@ impl<S: Source> VariableInputResampler<S> {
             "We should provide exactly the samples needed by the resampler"
         );
 
-        let output_len = if padding > 0 {
-            (padding as f64 * self.resampler.resample_ratio()) as usize
-        } else {
-            output_frames * channels.get() as usize
-        };
+        let padding_samples = padding as f64 * self.resampler.resample_ratio();
+        let output_len = output_frames * channels.get() as usize;
+        let output_len = output_len - padding_samples as usize;
+
         self.output_buffer.truncate(output_len);
 
         self.next_sample = 0;
@@ -279,7 +278,10 @@ mod tests {
     fn assert_non_zero_volume_fuzzy(source: impl Source) {
         let sample_rate = source.sample_rate();
         let chunk_size = sample_rate.get() / 1000;
-        let ms_volume = source.into_iter().chunks(chunk_size as usize);
+        let ms_volume = source
+            .into_iter()
+            .inspect(|s| print!("{s}\n"))
+            .chunks(chunk_size as usize);
         let ms_volume = ms_volume
             .into_iter()
             .map(|chunk| chunk.into_iter().map(|s| s.abs()).sum::<f32>() / chunk_size as f32);
