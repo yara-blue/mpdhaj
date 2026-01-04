@@ -370,9 +370,9 @@ pub async fn perform_command(
             String::new()
         }
 
-        Stats => todo!(),
+        Stats => todo!(), // there is some commented out code already, search for that
         Idle(_) | NoIdle => panic!("These should be handled in the outer loop"),
-        Ping => "OK".to_owned(),
+        Ping => String::new(),
         other => unimplemented!("{other:?}"),
     })
 }

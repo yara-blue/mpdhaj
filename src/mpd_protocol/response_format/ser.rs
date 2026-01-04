@@ -219,9 +219,9 @@ impl ser::SerializeSeq for &mut Serializer {
     }
 
     fn end(self) -> Result<()> {
-        if !self.output.ends_with('\n') {
-            self.output.push('\n');
-        }
+        // if !self.output.ends_with('\n') {
+        //     self.output.push('\n');
+        // }
         Ok(())
     }
 }
