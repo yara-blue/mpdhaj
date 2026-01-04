@@ -60,6 +60,9 @@ CREATE TABLE IF NOT EXISTS state (
     -- position in queue
     current     INTEGER DEFAULT 0, -- TODO: also store songid of current
 
+    volume      INTEGER DEFAULT 10, -- TODO: remove me, for testing only
+    paused      BOOLEAN DEFAULT true,
+
     repeat      BOOLEAN DEFAULT 0,
     random      BOOLEAN DEFAULT 0,
     single      BOOLEAN DEFAULT 0,

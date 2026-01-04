@@ -8,7 +8,7 @@ use std::str::FromStr;
 
 use crate::mpd_protocol::{
     Command::{self, *},
-    List, Position, QueueId, SubSystem, Tag,
+    List, Position, QueueId, SubSystem, Tag, VolumeChange,
     query::Query,
 };
 
@@ -25,7 +25,7 @@ grammar command() for str {
     rule playback_options() -> Command
     = "todo" { todo!() }
     rule control_playback() -> Command
-    = "todo" { todo!() }
+    = pause() / setvol()
     rule manipulate_queue() -> Command
     = add() / playlistid()
     rule manipulate_playlist() -> Command
@@ -48,7 +48,11 @@ grammar command() for str {
     rule command_without_arguments() -> Command
         = c:$(['a'..='z' | 'A'..='Z']+) {? Command::from_str(c).or(Err("invalid command character"))  }
 
-
+    // control_playback
+    rule setvol() -> Command
+        = "setvol" _ v:number() { Command::Volume(VolumeChange(v)) }
+    rule pause() -> Command
+        = "pause" is_paused:(_ state:(['1' | '0']) {state})? { Command::Pause(is_paused.map(|s| s == '0')) }
     // manipulate queue
     rule playlistid() -> Command
     = "playlistid" id:(_ "\""? id:song_id() "\""? {id})? { Command::PlaylistId(id) }
@@ -89,7 +93,7 @@ grammar command() for str {
     = v:(x() ** " ") {v}
 
     rule number<T: std::str::FromStr>() -> T
-    = s:$(['0'..='9']+) {? s.parse().or(Err("number")) }
+    = "\""? s:$(['0'..='9']+) "\""? {? s.parse().or(Err("number")) }
     rule name() -> String = #{ string }
     rule tag() -> Tag = #{ try_from_str }
     rule subsystem() -> SubSystem = #{ try_from_str }

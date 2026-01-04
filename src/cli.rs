@@ -25,6 +25,7 @@ pub(crate) enum Commands {
         #[clap(short, long)]
         beep: bool,
     },
+    DeleteDatabase,
 }
 
 #[derive(clap::Parser)]

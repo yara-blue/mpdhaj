@@ -12,7 +12,7 @@ use tokio::sync::Mutex;
 use tokio::task;
 use tracing::{debug, info, instrument, warn};
 
-use crate::mpd_protocol::{self, PlaybackState, SubSystem, Tag, response_format};
+use crate::mpd_protocol::{self, response_format, PlaybackState, SubSystem, Tag, VolumeChange};
 use crate::{mpd_protocol::Command, system::System};
 
 // stuff that's specific to a single client connection
@@ -270,9 +270,15 @@ pub async fn perform_command(
                 .wrap_err("Failed to get song info")
                 .with_note(|| format!("song path: {song:?}"))?,
         )?,
-        Volume(_volume_change) => todo!(),
+        Volume(VolumeChange(volume)) => {
+            assert!((0..=100).contains(volume));
+            system.player.set_volume(*volume as f32/100.0);
+            system.db.execute("UPDATE state SET volume = ?", [volume])?;
+            String::new()
+        },
         Play(pos) => {
             system.playing = PlaybackState::Play;
+            system.db.execute("UPDATE state SET paused = ?", [false])?;
             let path = if let Some(pos) = pos {
                 system.song_by_pos(*pos)
             } else {
@@ -280,6 +286,12 @@ pub async fn perform_command(
             }?
             .ok_or_eyre("Couldn't find song")?
             .path;
+
+            let path = if path.is_absolute() {
+                path
+            } else {
+                system.music_dir.join(path)
+            };
 
             system
                 .player
@@ -294,6 +306,7 @@ pub async fn perform_command(
                 Some(false) => PlaybackState::Play,
                 None => system.playing.toggle(),
             };
+            system.db.execute("UPDATE state SET paused = ?", [system.playing == PlaybackState::Pause])?;
             if system.playing == PlaybackState::Play {
                 system.player.unpause();
             } else {

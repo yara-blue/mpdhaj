@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use clap::Parser;
-use color_eyre::{Result, eyre::Context};
-use tokio::sync::Mutex;
+use color_eyre::{Result, Section, eyre::Context};
+use etcetera::BaseStrategy;
+use tokio::{fs::remove_file, sync::Mutex};
 use tracing_subscriber::fmt::format::FmtSpan;
 
 use crate::{
@@ -56,6 +57,13 @@ async fn main() -> Result<()> {
             if beep {
                 player::outputs::beep().wrap_err("Failed to play beep on all outputs")?;
             }
+        }
+        Commands::DeleteDatabase => {
+            let path = system::sqlite_path()?;
+            remove_file(&path)
+                .await
+                .wrap_err("Failed to remove the database")
+                .with_note(|| format!("database path: {}", path.display()))?;
         }
     };
 

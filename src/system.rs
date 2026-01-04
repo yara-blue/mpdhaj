@@ -12,6 +12,7 @@ use tokio::sync::mpsc;
 use tracing::instrument;
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::mpd_protocol::query::Query;
@@ -23,6 +24,11 @@ use crate::player::Player;
 use crate::playlist::{self, PlaylistName};
 
 mod query;
+
+pub fn sqlite_path() -> Result<PathBuf> {
+    let dirs = etcetera::choose_base_strategy()?;
+    Ok(dirs.cache_dir().join("mpdhaj").join("state.sqlite"))
+}
 
 pub struct System {
     pub db: Connection,
@@ -36,12 +42,16 @@ pub struct System {
 
 impl System {
     pub fn new(music_dir: Utf8PathBuf, playlist_dir: Option<Utf8PathBuf>) -> Result<Self> {
-        let dirs = etcetera::choose_base_strategy()?;
-        let cache = dirs.cache_dir().join("mpdhaj").join("state.sqlite");
+        let cache = sqlite_path()?;
         std::fs::create_dir_all(cache.parent().unwrap())?;
         let db = Connection::open(cache)?;
         db.execute_batch(include_str!("tables.sql"))?;
         let playlist_dir = playlist_dir.unwrap_or_else(|| music_dir.join("playlists"));
+
+        let (paused, volume) = db.query_one("SELECT paused, volume FROM state", [], |row| {
+            Ok((row.get::<_, bool>(0)?, row.get::<_, f32>(1)?))
+        })?;
+
         let playlists = match playlist::load_from_dir(&playlist_dir) {
             Ok(p) => p,
             Err(e) => {
@@ -49,7 +59,7 @@ impl System {
                 Default::default()
             }
         };
-        let player = Player::new(0.5, false);
+        let player = Player::new(volume, paused);
         Ok(System {
             db,
             music_dir,
@@ -62,8 +72,8 @@ impl System {
     }
 
     pub fn status(&self) -> Result<mpd_protocol::Status> {
-        let (current, random, single, consume, repeat) = self.db.query_one(
-            "SELECT current, random, single, consume, repeat FROM state",
+        let (current, random, single, consume, repeat, volume) = self.db.query_one(
+            "SELECT current, random, single, consume, repeat, volume FROM state",
             [],
             |row| {
                 Ok((
@@ -72,6 +82,7 @@ impl System {
                     row.get(2)?,
                     row.get(3)?,
                     row.get(4)?,
+                    row.get(5)?,
                 ))
             },
         )?;
@@ -101,7 +112,7 @@ impl System {
             single,
             consume,
             partition: "default".to_string(),
-            volume: Volume::new(50), // TODO: persist
+            volume: Volume::new(volume), // TODO: persist
             playlist: 0,             // TODO
             playlistlength: len as u64,
             state: self.playing,

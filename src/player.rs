@@ -1,5 +1,5 @@
 use atomic_float::AtomicF32;
-use color_eyre::Result;
+use color_eyre::{Result, Section, eyre::Context};
 use std::{
     fs::File,
     io::BufReader,
@@ -110,7 +110,7 @@ impl Player {
                 let (queue, handle) = UniformQueue::<MpdTrack>::new(nz!(2), nz!(44100));
                 let queue = queue
                     .pausable(params_clone.paused())
-                    .amplify(Factor::input_volume())
+                    .amplify(Factor::Normalized(volume))
                     .with_data(params_clone)
                     .periodic_access(AUDIO_THREAD_RESPONSE_LATENCY, update_params);
                 let needs_resample = sink.sample_rate != queue.sample_rate();
@@ -154,7 +154,11 @@ impl Player {
     }
 
     pub async fn add(&mut self, path: &Utf8Path) -> Result<()> {
-        let file = BufReader::new(File::open(path)?);
+        let file = BufReader::new(
+            File::open(path)
+                .wrap_err("Could not open file")
+                .with_note(|| format!("file: {}", path))?,
+        );
         let params = Arc::clone(&self.params);
         let abort_handle = AbortHandle::new();
 
@@ -180,6 +184,7 @@ impl Player {
     pub fn unpause(&self) {
         self.params.paused.store(false, Ordering::Relaxed);
     }
+    /// volume needs to be between zero and one
     pub fn set_volume(&self, volume: f32) {
         self.params.volume.store(volume, Ordering::Relaxed);
     }
