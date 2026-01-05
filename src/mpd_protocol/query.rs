@@ -73,7 +73,6 @@ impl Default for QueryNode {
     }
 }
 
-// TODO should be a tree of operations
 /// One or more [`Filters`](Filter) combined or negated.
 ///
 /// Note that each expression must be enclosed in parentheses, e.g. (!(artist ==

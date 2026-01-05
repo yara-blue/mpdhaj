@@ -6,9 +6,11 @@ use itertools::Itertools;
 use peg::{RuleResult, RuleResult::*};
 use std::str::FromStr;
 
+mod query;
+
 use crate::mpd_protocol::{
     Command::{self, *},
-    List, Position, QueueId, SubSystem, Tag, VolumeChange,
+    List, Position, QueueId, Sort, SubSystem, Tag, VolumeChange,
     query::Query,
 };
 
@@ -31,7 +33,7 @@ grammar command() for str {
     rule manipulate_playlist() -> Command
     = "todo" { todo!() }
     rule interact_with_database() -> Command
-    = list_tag() / lsinfo()
+    = list_tag() / lsinfo() / find()
     rule mounts_and_neighbors() -> Command
     = "todo" { todo!() }
     rule stickers() -> Command
@@ -67,13 +69,20 @@ grammar command() for str {
         = "list" _ tag_to_list:tag() query:(_ query:filter() {query})? group_by:(_ "group" group_by:tag() {group_by})* window:(_ window:window() {window})? {
         Command::List(List { tag_to_list, query, group_by, window })
     }
+    rule find() -> Command
+        = "find" _ q:filter() sort:sort()?  range:(_ w:window() {w})?
+            { Command::Find(q, sort, range) }
+
+    // util
 
     rule window() -> core::ops::Range<u32>
     = start:number() ":" end:number() {
         start..end
     }
 
-    rule filter() -> Query
+    rule filter() -> Query = #{query::parse }
+
+    rule sort() -> Sort
     = "todo" {
         todo!()
     }

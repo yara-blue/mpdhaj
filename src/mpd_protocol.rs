@@ -101,8 +101,8 @@ pub enum Command {
     AlbumArt(Utf8PathBuf, u64), // offset in bytes
     Count(Query, Option<Tag>),  // TODO: the group field here is weird, query can be optional?
     GetFingerprint(Utf8PathBuf),
-    Find(Query, Option<Sort>, Option<Range>),
-    FindAdd(Query, Option<Sort>, Option<Range>, Option<Position>),
+    Find(Query, Option<Sort>, Option<core::ops::Range<u32>>),
+    FindAdd(Query, Option<Sort>, Option<core::ops::Range<u32>>, Option<Position>),
     List(List),
     /// List everything in this dir
     ListAll(Option<Utf8PathBuf>),
