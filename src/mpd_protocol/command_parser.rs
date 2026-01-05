@@ -61,6 +61,7 @@ grammar command() for str {
     rule add() -> Command
     = "add" _ uri:uri() pos:(_ pos:position() {pos})? { Command::Add(uri, pos) }
 
+    // interact_with_database
     rule lsinfo() -> Command
         = ("lsinfo" / "listall") uri:(_ uri:uri() {uri})? {
         Command::ListAll(uri)
@@ -89,7 +90,8 @@ grammar command() for str {
 
     // connection settings
     rule tagtypes() -> Command =
-        // ???? why does this one have quotes but not the others, maybe we need a real tokenizer...
+        // ???? why does this one have quotes but not the others, 
+        // maybe we need a real tokenizer...
         "\"clear\"" { TagTypesClear } /
         "all" { TagTypesAll } /
         "available" { TagTypesAvailable } /
@@ -131,36 +133,50 @@ fn try_from_str<T: FromStr>(input: &str, pos: usize) -> RuleResult<T> {
 }
 
 fn uri(input: &str, pos: usize) -> RuleResult<Utf8PathBuf> {
-    match possibly_quoted_string(&input[pos..]) {
+    match possibly_quoted_string(&input[pos..], " ") {
         Matched(consumed, s) => Matched(consumed + pos, Utf8PathBuf::from(s)),
         Failed => Failed,
     }
 }
 
 fn string(input: &str, pos: usize) -> RuleResult<String> {
-    match possibly_quoted_string(&input[pos..]) {
+    match possibly_quoted_string(&input[pos..], " ") {
         Matched(consumed, s) => Matched(consumed + pos, s),
         Failed => Failed,
     }
 }
 
 // TODO: make \ escaping work correctly on windows...
-fn possibly_quoted_string(input: &str) -> RuleResult<String> {
-    if !input.starts_with('"') {
-        return if let Some(len) = input.find(' ') {
+fn possibly_quoted_string(input: &str, unquoted_ends_on: &str) -> RuleResult<String> {
+    if !input.starts_with(['"', '\'']) {
+        return if let Some(len) = input.find(unquoted_ends_on) {
             Matched(len, input[..len].to_owned())
         } else {
             Matched(input.len(), input.to_owned())
         };
     }
+    let quote = input
+        .chars()
+        .next()
+        .expect("we return if quote is not found");
     let mut output = String::new();
     let padded = input.chars();
+
     for w @ (_, _) in padded.tuple_windows() {
-        match w {
-            ('\\', c @ ('\\' | '"')) => output.push(c),
-            (_, '\\') => {}
-            (_, '"') => return Matched(output.len() + 2, output),
-            (_, c) => output.push(c),
+        if quote == '"' {
+            match w {
+                ('\\', c @ ('\\' | '"')) => output.push(c),
+                (_, '\\') => {}
+                (_, '"') => return Matched(output.len() + 2, output),
+                (_, c) => output.push(c),
+            }
+        } else {
+            match w {
+                ('\\', c @ ('\\' | '\'')) => output.push(c),
+                (_, '\\') => {}
+                (_, '\'') => return Matched(output.len() + 2, output),
+                (_, c) => output.push(c),
+            }
         }
     }
     // unclosed string
@@ -200,6 +216,9 @@ pub fn parse(s: &str) -> color_eyre::Result<Command> {
 
 #[cfg(test)]
 mod tests {
+    use crate::mpd_protocol::query::Filter;
+    use crate::mpd_protocol::query::QueryNode;
+
     use super::*;
 
     trait ExtendRuleResult<T> {
@@ -218,12 +237,28 @@ mod tests {
     #[test]
     fn test_parse_string() {
         let s = "Non-Album/Necry-Talkie/北上のススメ";
-        assert_eq!(s, possibly_quoted_string(s).unwrap());
+        assert_eq!(s, string(s, 0).unwrap());
         let s = r#""Daft Punk/Discovery/02 Aerodynamic.mp3""#;
-        assert_eq!(s[1..s.len() - 1], possibly_quoted_string(s).unwrap());
+        assert_eq!(s[1..s.len() - 1], string(s, 0).unwrap());
         let s = r#""asdf\"asdf""#;
-        assert_eq!("asdf\"asdf", possibly_quoted_string(s).unwrap());
+        assert_eq!("asdf\"asdf", string(s, 0).unwrap());
         let s = r#""asdf\\asdf""#;
-        assert_eq!("asdf\\asdf", possibly_quoted_string(s).unwrap());
+        assert_eq!("asdf\\asdf", string(s, 0).unwrap());
+    }
+
+    #[test]
+    fn find() {
+        let s = r#"find "((Artist == Abba))""#;
+        assert_eq!(
+            parse(s).unwrap(),
+            Find(
+                Query(QueryNode::Filter(Filter::TagEqual {
+                    tag: Tag::Artist,
+                    needle: "Abba".to_string(),
+                })),
+                None,
+                None
+            )
+        )
     }
 }
